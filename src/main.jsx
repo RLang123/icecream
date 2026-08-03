@@ -30,6 +30,7 @@ import "./auth.css";
 import "./auth-v2.css";
 import "./landing.css";
 import "./content.css";
+import "./partnership.css";
 
 const seed = {
   store: {
@@ -244,6 +245,8 @@ function Root() {
   return <Studio user={user} onLogout={logout} />;
 }
 
+function PartnershipSection(){const [state,setState]=useState('idle');const [message,setMessage]=useState('');const submit=async event=>{event.preventDefault();if(state==='sending')return;setState('sending');setMessage('');const form=event.currentTarget;try{const response=await fetch('https://formspree.io/f/mbdnnbrn',{method:'POST',body:new FormData(form),headers:{Accept:'application/json'}});if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.errors?.map(error=>error.message).join(', ')||'문의를 전송하지 못했습니다.')}setState('success');setMessage('제휴 문의가 전송되었습니다. 확인 후 입력하신 이메일로 답변드릴게요.');form.reset()}catch(error){setState('error');setMessage(error.message||'네트워크 연결을 확인한 뒤 다시 시도해 주세요.')}};return <section className="landing-section partnership-section" id="partnership"><div className="partnership-copy"><span>PARTNERSHIP</span><h2>GENO Stuido와<br/>함께 만들고 싶나요?</h2><p>서비스 제휴, 매장 도입, 콘텐츠 협업과 개선 제안을 보내주세요. 구체적인 배경과 원하는 방식을 알려주시면 더 정확하게 확인할 수 있습니다.</p><div><i>✦</i><span><b>제휴 문의 전용</b><small>광고성 메시지가 아닌 실제 협업 제안을 기다립니다.</small></span></div></div><form className="partnership-form" onSubmit={submit}><input type="hidden" name="_subject" value="GENO Stuido 새 제휴 문의"/><label><span>회사·매장명</span><input name="company" required maxLength="80" placeholder="예: GENO Coffee"/></label><label><span>담당자명</span><input name="name" required maxLength="40" autoComplete="name" placeholder="담당자 이름"/></label><label><span>회신 이메일</span><input name="email" type="email" required autoComplete="email" placeholder="name@company.com"/></label><label><span>제휴 유형</span><select name="partnership_type" required defaultValue=""><option value="" disabled>선택해 주세요</option><option>매장 도입 문의</option><option>서비스 제휴</option><option>콘텐츠 협업</option><option>기능·개선 제안</option><option>기타</option></select></label><label className="wide"><span>제안 내용</span><textarea name="message" required minLength="10" maxLength="2000" placeholder="제안 배경과 원하는 협업 방식을 10자 이상 적어주세요."/></label><input className="form-honeypot" type="text" name="_gotcha" tabIndex="-1" autoComplete="off"/><label className="partnership-consent wide"><input type="checkbox" required/><span>답변을 위해 입력한 이름, 이메일과 문의 내용이 Formspree로 전달되는 것에 동의합니다.</span></label><div className="partnership-actions wide"><button type="submit" disabled={state==='sending'}>{state==='sending'?'안전하게 전송 중...':'제휴 문의 보내기'}<ChevronRight/></button><p className={state}>{message}</p></div></form></section>}
+
 function AuthPage({ onAuth }) {
   const [mode, setMode] = useState("login");
   const [error, setError] = useState("");
@@ -283,6 +286,7 @@ function AuthPage({ onAuth }) {
           <a href="#features">기능</a>
           <a href="#flow">제작 과정</a>
           <a href="#guide">운영 가이드</a>
+          <a href="#partnership">제휴 문의</a>
           <a href="#safety">무료 운영</a>
         </div>
         <a className="landing-login" href="#seller-login">
@@ -667,6 +671,7 @@ function AuthPage({ onAuth }) {
         <div className="scenario-timeline"><article><i>10:02</i><div><b>고객 주문</b><p>ICE · L · 샷 1회와 부서를 선택해 주문합니다.</p></div><span>7,700원</span></article><article><i>10:02</i><div><b>판매자 알림</b><p>주문 탭이 열리고 알림음으로 새 주문을 알려줍니다.</p></div><span className="orange">NEW</span></article><article><i>10:07</i><div><b>판매 완료</b><p>결제수단과 완료시각이 기록되고 판매 분석에 반영됩니다.</p></div><span className="green">DONE</span></article></div>
       </section>
       <section className="landing-section faq-section"><div className="landing-heading"><span>BEFORE YOU START</span><h2>시작하기 전에<br/>많이 묻는 질문.</h2></div><div className="faq-list"><details open><summary>고객도 로그인해야 하나요?<Plus/></summary><p>아니요. 로그인과 회원가입은 판매자 전용이며, 소비자는 매장 전용 주소를 열어 바로 주문합니다.</p></details><details><summary>사진을 올리면 비용이 발생하나요?<Plus/></summary><p>별도 유료 이미지 API를 사용하지 않습니다. 사진을 브라우저에서 자동 압축해 현재 프로젝트 데이터에 함께 저장합니다.</p></details><details><summary>인터넷이 잠시 느리면 주문이 두 번 들어가나요?<Plus/></summary><p>각 주문에 고유 요청번호를 부여해 같은 주문이 다시 전송되더라도 하나만 생성합니다.</p></details><details><summary>무료 서버가 포화되면 자동 결제되나요?<Plus/></summary><p>무료 플랜을 유지하며 자동 유료 전환 기능을 사용하지 않습니다. 요청량 보호 모드가 먼저 작동합니다.</p></details></div></section>
+      <PartnershipSection/>
       <section className="landing-section safety-section" id="safety">
         <div>
           <span className="auth-kicker">FREE-FIRST INFRASTRUCTURE</span>

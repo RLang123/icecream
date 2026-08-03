@@ -29,6 +29,7 @@ import "./styles.css";
 import "./auth.css";
 import "./auth-v2.css";
 import "./landing.css";
+import "./content.css";
 
 const seed = {
   store: {
@@ -281,6 +282,7 @@ function AuthPage({ onAuth }) {
         <div>
           <a href="#features">기능</a>
           <a href="#flow">제작 과정</a>
+          <a href="#guide">운영 가이드</a>
           <a href="#safety">무료 운영</a>
         </div>
         <a className="landing-login" href="#seller-login">
@@ -641,6 +643,30 @@ function AuthPage({ onAuth }) {
           </article>
         </div>
       </section>
+      <section className="landing-section quality-section" id="guide">
+        <div className="quality-intro">
+          <span>QUALITY BEFORE QUANTITY</span>
+          <h2>메뉴가 많아서가 아니라,<br/>고르기 쉬워서 좋은 키오스크.</h2>
+          <p>고객을 오래 붙잡는 복잡한 화면보다 원하는 메뉴와 옵션을 빠르게 찾고 정확하게 주문하는 경험을 우선합니다.</p>
+        </div>
+        <div className="quality-principles">
+          <article><b>01</b><div><h3>중복은 줄이고 선택은 선명하게</h3><p>비슷한 메뉴와 불필요한 화면을 정리하고 카테고리, 사진, 품절 상태를 한눈에 보여줍니다.</p></div></article>
+          <article><b>02</b><div><h3>화면에서 약속한 기능은 실제로</h3><p>주문 버튼은 주문을 저장하고, 품절 표시는 판매를 막으며, 내보낸 주소는 다른 기기에서도 열립니다.</p></div></article>
+          <article><b>03</b><div><h3>고객이 다시 찾을 이유 만들기</h3><p>매장 로고와 음식 사진, 정확한 재료 설명으로 어디서나 같은 브랜드 경험을 제공합니다.</p></div></article>
+        </div>
+      </section>
+      <section className="landing-section insight-section">
+        <div className="insight-head"><div><span>STORE PLAYBOOK</span><h2>운영할수록 더 좋아지는<br/>작은 매장 가이드</h2></div><p>좋은 키오스크는 설치로 끝나지 않습니다.<br/>실제 주문을 보고 다음 영업일을 더 단단하게 준비하세요.</p></div>
+        <div className="insight-grid">
+          <article className="insight-lead"><div className="insight-art"><span>12</span><i>ORDERS</i><b>↗</b></div><small>운영 가이드 · 5분</small><h3>첫 영업일에는 메뉴 수보다<br/>주문 흐름을 먼저 확인하세요.</h3><p>핵심 메뉴로 시작하고 고객이 온도·사이즈·부서를 어려움 없이 선택하는지 확인한 뒤 메뉴를 늘리는 것이 좋습니다.</p><a href="#seller-login">내 매장으로 적용하기 →</a></article>
+          <div className="insight-list"><article><span>MENU QUALITY</span><h3>음식 사진은 실제 제공 모습과 가깝게</h3><p>과장된 사진보다 밝고 선명한 한 장이 고객의 선택을 더 빠르게 만듭니다.</p></article><article><span>STOCK CONTROL</span><h3>재료 소진 전에 연결 메뉴 확인하기</h3><p>공통 재료를 연결하면 한 번의 재고 변경으로 관련 메뉴를 함께 품절 처리할 수 있습니다.</p></article><article><span>DAILY CLOSE</span><h3>자정 전에 부서별 기록 내보내기</h3><p>완료·환불·결제수단 기록을 내려받아 다음 날 운영과 정산에 활용하세요.</p></article></div>
+        </div>
+      </section>
+      <section className="landing-section scenario-section">
+        <div className="scenario-copy"><span>EXAMPLE STORE STORY</span><h2>주문 한 건이<br/>완료되기까지.</h2><p>GENO Stuido의 기능이 실제 매장에서 어떻게 이어지는지 보여주는 예시 시나리오입니다.</p></div>
+        <div className="scenario-timeline"><article><i>10:02</i><div><b>고객 주문</b><p>ICE · L · 샷 1회와 부서를 선택해 주문합니다.</p></div><span>7,700원</span></article><article><i>10:02</i><div><b>판매자 알림</b><p>주문 탭이 열리고 알림음으로 새 주문을 알려줍니다.</p></div><span className="orange">NEW</span></article><article><i>10:07</i><div><b>판매 완료</b><p>결제수단과 완료시각이 기록되고 판매 분석에 반영됩니다.</p></div><span className="green">DONE</span></article></div>
+      </section>
+      <section className="landing-section faq-section"><div className="landing-heading"><span>BEFORE YOU START</span><h2>시작하기 전에<br/>많이 묻는 질문.</h2></div><div className="faq-list"><details open><summary>고객도 로그인해야 하나요?<Plus/></summary><p>아니요. 로그인과 회원가입은 판매자 전용이며, 소비자는 매장 전용 주소를 열어 바로 주문합니다.</p></details><details><summary>사진을 올리면 비용이 발생하나요?<Plus/></summary><p>별도 유료 이미지 API를 사용하지 않습니다. 사진을 브라우저에서 자동 압축해 현재 프로젝트 데이터에 함께 저장합니다.</p></details><details><summary>인터넷이 잠시 느리면 주문이 두 번 들어가나요?<Plus/></summary><p>각 주문에 고유 요청번호를 부여해 같은 주문이 다시 전송되더라도 하나만 생성합니다.</p></details><details><summary>무료 서버가 포화되면 자동 결제되나요?<Plus/></summary><p>무료 플랜을 유지하며 자동 유료 전환 기능을 사용하지 않습니다. 요청량 보호 모드가 먼저 작동합니다.</p></details></div></section>
       <section className="landing-section safety-section" id="safety">
         <div>
           <span className="auth-kicker">FREE-FIRST INFRASTRUCTURE</span>

@@ -32,6 +32,7 @@ import "./landing.css";
 import "./content.css";
 import "./partnership.css";
 import "./sound.css";
+import "./auth-modal.css";
 
 const seed = {
   store: {
@@ -464,10 +465,99 @@ function PartnershipSection() {
   );
 }
 
+function SellerAuthForm({ mode, setMode, error, setError, busy, submit }) {
+  return (
+    <form className="auth-form seller-auth-modal-form" onSubmit={submit}>
+      <div className="auth-form-icon">
+        <Store />
+      </div>
+      <span className="auth-kicker">SELLER WORKSPACE</span>
+      <h2>{mode === "login" ? "내 매장으로 돌아가기" : "새 매장 시작하기"}</h2>
+      <p>
+        {mode === "login"
+          ? "판매자 계정으로 로그인해 오늘의 매장을 운영하세요."
+          : "비용 없이 계정을 만들고 나만의 주문 사이트를 완성하세요."}
+      </p>
+      <div className="auth-mode-tabs">
+        <button
+          type="button"
+          className={mode === "login" ? "on" : ""}
+          onClick={() => {
+            setMode("login");
+            setError("");
+          }}
+        >
+          로그인
+        </button>
+        <button
+          type="button"
+          className={mode === "register" ? "on" : ""}
+          onClick={() => {
+            setMode("register");
+            setError("");
+          }}
+        >
+          회원가입
+        </button>
+      </div>
+      {mode === "register" && (
+        <Field label="판매자 이름">
+          <input
+            name="name"
+            required
+            maxLength="40"
+            placeholder="이름을 입력하세요"
+          />
+        </Field>
+      )}
+      <Field label="이메일">
+        <input
+          name="email"
+          type="email"
+          required
+          placeholder="owner@example.com"
+          autoComplete="email"
+        />
+      </Field>
+      <Field label="비밀번호">
+        <input
+          name="password"
+          type="password"
+          required
+          minLength="8"
+          placeholder="8자 이상 입력하세요"
+          autoComplete={mode === "login" ? "current-password" : "new-password"}
+        />
+      </Field>
+      {error && <div className="auth-error">{error}</div>}
+      <button className="auth-submit" disabled={busy}>
+        {busy
+          ? "안전하게 연결하는 중..."
+          : mode === "login"
+            ? "판매자 로그인"
+            : "무료로 시작하기"}
+        <ChevronRight />
+      </button>
+      <div className="auth-assurance">
+        <span>
+          <Check /> 판매자 전용
+        </span>
+        <span>
+          <Check /> 서버 자동 저장
+        </span>
+        <span>
+          <Check /> 별도 설치 없음
+        </span>
+      </div>
+    </form>
+  );
+}
+
 function AuthPage({ onAuth }) {
   const [mode, setMode] = useState("login");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -506,9 +596,9 @@ function AuthPage({ onAuth }) {
           <a href="#partnership">제휴 문의</a>
           <a href="#safety">무료 운영</a>
         </div>
-        <a className="landing-login" href="#seller-login">
+        <button className="landing-login" onClick={() => setAuthOpen(true)}>
           판매자 로그인 <ChevronRight />
-        </a>
+        </button>
       </nav>
       <div className="auth-page auth-v2">
         <section className="auth-story">
@@ -656,91 +746,89 @@ function AuthPage({ onAuth }) {
             </span>
           </div>
         </section>
-        <section className="auth-form-wrap" id="seller-login">
-          <form className="auth-form" onSubmit={submit}>
-            <div className="auth-form-icon">
-              <Store />
-            </div>
-            <span className="auth-kicker">SELLER WORKSPACE</span>
-            <h2>
-              {mode === "login" ? "내 매장으로 돌아가기" : "새 매장 시작하기"}
-            </h2>
-            <p>
-              {mode === "login"
-                ? "판매자 계정으로 로그인해 오늘의 매장을 운영하세요."
-                : "비용 없이 계정을 만들고 나만의 주문 사이트를 완성하세요."}
-            </p>
-            {mode === "register" && (
-              <Field label="판매자 이름">
-                <input
-                  name="name"
-                  required
-                  maxLength="40"
-                  placeholder="이름을 입력하세요"
-                />
-              </Field>
-            )}
-            <Field label="이메일">
-              <input
-                name="email"
-                type="email"
-                required
-                placeholder="owner@example.com"
-                autoComplete="email"
-              />
-            </Field>
-            <Field label="비밀번호">
-              <input
-                name="password"
-                type="password"
-                required
-                minLength="8"
-                placeholder="8자 이상 입력하세요"
-                autoComplete={
-                  mode === "login" ? "current-password" : "new-password"
-                }
-              />
-            </Field>
-            {error && <div className="auth-error">{error}</div>}
-            <button className="auth-submit" disabled={busy}>
-              {busy
-                ? "안전하게 연결하는 중..."
-                : mode === "login"
-                  ? "판매자 로그인"
-                  : "무료로 시작하기"}
-              <ChevronRight />
-            </button>
-            <div className="auth-switch">
-              {mode === "login"
-                ? "아직 판매자 계정이 없나요?"
-                : "이미 판매자 계정이 있나요?"}{" "}
-              <button
-                type="button"
-                onClick={() => {
-                  setMode(mode === "login" ? "register" : "login");
-                  setError("");
-                }}
-              >
-                {mode === "login" ? "무료 회원가입" : "로그인"}
-              </button>
-            </div>
-            <div className="auth-assurance">
-              <span>
-                <Check /> 판매자 전용 로그인
-              </span>
-              <span>
-                <Check /> 서버 자동 저장
-              </span>
-              <span>
-                <Check /> 별도 설치 없음
-              </span>
-            </div>
-          </form>
-          <p className="auth-footnote">
-            GENO Stuido · 매장을 위한 가장 유연한 키오스크 작업실
+        <section className="auth-form-wrap auth-entry" id="seller-login">
+          <div className="entry-orbit">
+            <span>🍨</span>
+            <i>✦</i>
+            <i>↗</i>
+          </div>
+          <span className="auth-kicker">YOUR STORE STARTS HERE</span>
+          <h2>
+            준비되셨나요?
+            <br />내 매장을 열어보세요.
+          </h2>
+          <p>
+            판매자 계정 하나로 키오스크 제작, 고객 주문 사이트와 매장 운영
+            화면을 시작합니다.
           </p>
+          <button
+            className="entry-primary"
+            onClick={() => {
+              setMode("register");
+              setAuthOpen(true);
+            }}
+          >
+            무료로 시작하기 <ChevronRight />
+          </button>
+          <button
+            className="entry-secondary"
+            onClick={() => {
+              setMode("login");
+              setAuthOpen(true);
+            }}
+          >
+            이미 계정이 있어요
+          </button>
+          <div className="entry-points">
+            <span>
+              <Check /> 카드 등록 없음
+            </span>
+            <span>
+              <Check /> 유료 API 없음
+            </span>
+            <span>
+              <Check /> 판매자 전용 계정
+            </span>
+          </div>
         </section>
       </div>
+      {authOpen && (
+        <div
+          className="seller-auth-overlay"
+          onMouseDown={(event) =>
+            event.target === event.currentTarget && setAuthOpen(false)
+          }
+        >
+          <div
+            className="seller-auth-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="판매자 로그인"
+          >
+            <button
+              className="seller-auth-close"
+              onClick={() => setAuthOpen(false)}
+            >
+              <X />
+            </button>
+            <div className="seller-auth-brand">
+              <div className="brandmark">
+                <Sparkles />
+              </div>
+              <span>GENO Stuido</span>
+              <small>안전한 판매자 작업실</small>
+            </div>
+            <SellerAuthForm
+              mode={mode}
+              setMode={setMode}
+              error={error}
+              setError={setError}
+              busy={busy}
+              submit={submit}
+            />
+          </div>
+        </div>
+      )}
       <section className="landing-section feature-section" id="features">
         <div className="landing-heading">
           <span>EVERYTHING YOUR STORE NEEDS</span>

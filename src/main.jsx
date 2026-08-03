@@ -31,6 +31,7 @@ import "./auth-v2.css";
 import "./landing.css";
 import "./content.css";
 import "./partnership.css";
+import "./sound.css";
 
 const seed = {
   store: {
@@ -151,6 +152,89 @@ const compressImage = (file, maxDimension = 720, maxBytes = 50000) =>
     };
     image.src = url;
   });
+const readAlertMp3 = async (file) => {
+  if (
+    !file ||
+    (!file.type.includes("mpeg") && !file.name.toLowerCase().endsWith(".mp3"))
+  )
+    throw new Error("MP3 파일만 등록할 수 있습니다.");
+  if (file.size > 350000)
+    throw new Error("알림음 파일은 350KB 이하로 선택해 주세요.");
+  const buffer = await file.arrayBuffer();
+  const context = new (window.AudioContext || window.webkitAudioContext)();
+  let decoded;
+  try {
+    decoded = await context.decodeAudioData(buffer.slice(0));
+  } finally {
+    await context.close();
+  }
+  if (decoded.duration >= 2)
+    throw new Error(
+      `알림음은 2초 미만이어야 합니다. 선택한 파일은 ${decoded.duration.toFixed(2)}초입니다.`,
+    );
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("MP3 파일을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+};
+const playNotificationSound = (store, contextRef) => {
+  const volume = Math.max(
+    0.1,
+    Math.min(1, Number(store.notificationVolume ?? 0.8)),
+  );
+  if (store.notificationSound === "custom" && store.notificationAudio) {
+    const audio = new Audio(store.notificationAudio);
+    audio.volume = volume;
+    audio.play().catch(() => {});
+    return;
+  }
+  try {
+    let context = contextRef.current;
+    if (!context) {
+      context = new (window.AudioContext || window.webkitAudioContext)();
+      contextRef.current = context;
+    }
+    context.resume?.();
+    const gain = context.createGain();
+    gain.gain.setValueAtTime(volume * 0.55, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 1.45);
+    gain.connect(context.destination);
+    const patterns = {
+      bell: [
+        [880, 0, 0.18],
+        [1175, 0.2, 0.2],
+        [1568, 0.45, 0.48],
+      ],
+      chime: [
+        [659, 0, 0.25],
+        [784, 0.18, 0.28],
+        [988, 0.38, 0.55],
+      ],
+      urgent: [
+        [1046, 0, 0.18],
+        [784, 0.22, 0.18],
+        [1046, 0.44, 0.18],
+        [1397, 0.68, 0.5],
+      ],
+    };
+    (patterns[store.notificationSound] || patterns.bell).forEach(
+      ([frequency, start, length]) => {
+        const oscillator = context.createOscillator();
+        oscillator.type =
+          store.notificationSound === "urgent" ? "square" : "sine";
+        oscillator.frequency.setValueAtTime(
+          frequency,
+          context.currentTime + start,
+        );
+        oscillator.connect(gain);
+        oscillator.start(context.currentTime + start);
+        oscillator.stop(context.currentTime + start + length);
+      },
+    );
+  } catch {}
+};
 const isMenuSoldOut = (item, store) =>
   !!item.soldout ||
   (item.ingredientIds || []).some(
@@ -245,7 +329,140 @@ function Root() {
   return <Studio user={user} onLogout={logout} />;
 }
 
-function PartnershipSection(){const [state,setState]=useState('idle');const [message,setMessage]=useState('');const submit=async event=>{event.preventDefault();if(state==='sending')return;setState('sending');setMessage('');const form=event.currentTarget;try{const response=await fetch('https://formspree.io/f/mbdnnbrn',{method:'POST',body:new FormData(form),headers:{Accept:'application/json'}});if(!response.ok){const data=await response.json().catch(()=>({}));throw new Error(data.errors?.map(error=>error.message).join(', ')||'문의를 전송하지 못했습니다.')}setState('success');setMessage('제휴 문의가 전송되었습니다. 확인 후 입력하신 이메일로 답변드릴게요.');form.reset()}catch(error){setState('error');setMessage(error.message||'네트워크 연결을 확인한 뒤 다시 시도해 주세요.')}};return <section className="landing-section partnership-section" id="partnership"><div className="partnership-copy"><span>PARTNERSHIP</span><h2>GENO Stuido와<br/>함께 만들고 싶나요?</h2><p>서비스 제휴, 매장 도입, 콘텐츠 협업과 개선 제안을 보내주세요. 구체적인 배경과 원하는 방식을 알려주시면 더 정확하게 확인할 수 있습니다.</p><div><i>✦</i><span><b>제휴 문의 전용</b><small>광고성 메시지가 아닌 실제 협업 제안을 기다립니다.</small></span></div></div><form className="partnership-form" onSubmit={submit}><input type="hidden" name="_subject" value="GENO Stuido 새 제휴 문의"/><label><span>회사·매장명</span><input name="company" required maxLength="80" placeholder="예: GENO Coffee"/></label><label><span>담당자명</span><input name="name" required maxLength="40" autoComplete="name" placeholder="담당자 이름"/></label><label><span>회신 이메일</span><input name="email" type="email" required autoComplete="email" placeholder="name@company.com"/></label><label><span>제휴 유형</span><select name="partnership_type" required defaultValue=""><option value="" disabled>선택해 주세요</option><option>매장 도입 문의</option><option>서비스 제휴</option><option>콘텐츠 협업</option><option>기능·개선 제안</option><option>기타</option></select></label><label className="wide"><span>제안 내용</span><textarea name="message" required minLength="10" maxLength="2000" placeholder="제안 배경과 원하는 협업 방식을 10자 이상 적어주세요."/></label><input className="form-honeypot" type="text" name="_gotcha" tabIndex="-1" autoComplete="off"/><label className="partnership-consent wide"><input type="checkbox" required/><span>답변을 위해 입력한 이름, 이메일과 문의 내용이 Formspree로 전달되는 것에 동의합니다.</span></label><div className="partnership-actions wide"><button type="submit" disabled={state==='sending'}>{state==='sending'?'안전하게 전송 중...':'제휴 문의 보내기'}<ChevronRight/></button><p className={state}>{message}</p></div></form></section>}
+function PartnershipSection() {
+  const [state, setState] = useState("idle");
+  const [message, setMessage] = useState("");
+  const submit = async (event) => {
+    event.preventDefault();
+    if (state === "sending") return;
+    setState("sending");
+    setMessage("");
+    const form = event.currentTarget;
+    try {
+      const response = await fetch("https://formspree.io/f/mbdnnbrn", {
+        method: "POST",
+        body: new FormData(form),
+        headers: { Accept: "application/json" },
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(
+          data.errors?.map((error) => error.message).join(", ") ||
+            "문의를 전송하지 못했습니다.",
+        );
+      }
+      setState("success");
+      setMessage(
+        "제휴 문의가 전송되었습니다. 확인 후 입력하신 이메일로 답변드릴게요.",
+      );
+      form.reset();
+    } catch (error) {
+      setState("error");
+      setMessage(
+        error.message || "네트워크 연결을 확인한 뒤 다시 시도해 주세요.",
+      );
+    }
+  };
+  return (
+    <section className="landing-section partnership-section" id="partnership">
+      <div className="partnership-copy">
+        <span>PARTNERSHIP</span>
+        <h2>
+          GENO Stuido와
+          <br />
+          함께 만들고 싶나요?
+        </h2>
+        <p>
+          서비스 제휴, 매장 도입, 콘텐츠 협업과 개선 제안을 보내주세요. 구체적인
+          배경과 원하는 방식을 알려주시면 더 정확하게 확인할 수 있습니다.
+        </p>
+        <div>
+          <i>✦</i>
+          <span>
+            <b>제휴 문의 전용</b>
+            <small>광고성 메시지가 아닌 실제 협업 제안을 기다립니다.</small>
+          </span>
+        </div>
+      </div>
+      <form className="partnership-form" onSubmit={submit}>
+        <input type="hidden" name="_subject" value="GENO Stuido 새 제휴 문의" />
+        <label>
+          <span>회사·매장명</span>
+          <input
+            name="company"
+            required
+            maxLength="80"
+            placeholder="예: GENO Coffee"
+          />
+        </label>
+        <label>
+          <span>담당자명</span>
+          <input
+            name="name"
+            required
+            maxLength="40"
+            autoComplete="name"
+            placeholder="담당자 이름"
+          />
+        </label>
+        <label>
+          <span>회신 이메일</span>
+          <input
+            name="email"
+            type="email"
+            required
+            autoComplete="email"
+            placeholder="name@company.com"
+          />
+        </label>
+        <label>
+          <span>제휴 유형</span>
+          <select name="partnership_type" required defaultValue="">
+            <option value="" disabled>
+              선택해 주세요
+            </option>
+            <option>매장 도입 문의</option>
+            <option>서비스 제휴</option>
+            <option>콘텐츠 협업</option>
+            <option>기능·개선 제안</option>
+            <option>기타</option>
+          </select>
+        </label>
+        <label className="wide">
+          <span>제안 내용</span>
+          <textarea
+            name="message"
+            required
+            minLength="10"
+            maxLength="2000"
+            placeholder="제안 배경과 원하는 협업 방식을 10자 이상 적어주세요."
+          />
+        </label>
+        <input
+          className="form-honeypot"
+          type="text"
+          name="_gotcha"
+          tabIndex="-1"
+          autoComplete="off"
+        />
+        <label className="partnership-consent wide">
+          <input type="checkbox" required />
+          <span>
+            답변을 위해 입력한 이름, 이메일과 문의 내용이 Formspree로 전달되는
+            것에 동의합니다.
+          </span>
+        </label>
+        <div className="partnership-actions wide">
+          <button type="submit" disabled={state === "sending"}>
+            {state === "sending" ? "안전하게 전송 중..." : "제휴 문의 보내기"}
+            <ChevronRight />
+          </button>
+          <p className={state}>{message}</p>
+        </div>
+      </form>
+    </section>
+  );
+}
 
 function AuthPage({ onAuth }) {
   const [mode, setMode] = useState("login");
@@ -650,28 +867,205 @@ function AuthPage({ onAuth }) {
       <section className="landing-section quality-section" id="guide">
         <div className="quality-intro">
           <span>QUALITY BEFORE QUANTITY</span>
-          <h2>메뉴가 많아서가 아니라,<br/>고르기 쉬워서 좋은 키오스크.</h2>
-          <p>고객을 오래 붙잡는 복잡한 화면보다 원하는 메뉴와 옵션을 빠르게 찾고 정확하게 주문하는 경험을 우선합니다.</p>
+          <h2>
+            메뉴가 많아서가 아니라,
+            <br />
+            고르기 쉬워서 좋은 키오스크.
+          </h2>
+          <p>
+            고객을 오래 붙잡는 복잡한 화면보다 원하는 메뉴와 옵션을 빠르게 찾고
+            정확하게 주문하는 경험을 우선합니다.
+          </p>
         </div>
         <div className="quality-principles">
-          <article><b>01</b><div><h3>중복은 줄이고 선택은 선명하게</h3><p>비슷한 메뉴와 불필요한 화면을 정리하고 카테고리, 사진, 품절 상태를 한눈에 보여줍니다.</p></div></article>
-          <article><b>02</b><div><h3>화면에서 약속한 기능은 실제로</h3><p>주문 버튼은 주문을 저장하고, 품절 표시는 판매를 막으며, 내보낸 주소는 다른 기기에서도 열립니다.</p></div></article>
-          <article><b>03</b><div><h3>고객이 다시 찾을 이유 만들기</h3><p>매장 로고와 음식 사진, 정확한 재료 설명으로 어디서나 같은 브랜드 경험을 제공합니다.</p></div></article>
+          <article>
+            <b>01</b>
+            <div>
+              <h3>중복은 줄이고 선택은 선명하게</h3>
+              <p>
+                비슷한 메뉴와 불필요한 화면을 정리하고 카테고리, 사진, 품절
+                상태를 한눈에 보여줍니다.
+              </p>
+            </div>
+          </article>
+          <article>
+            <b>02</b>
+            <div>
+              <h3>화면에서 약속한 기능은 실제로</h3>
+              <p>
+                주문 버튼은 주문을 저장하고, 품절 표시는 판매를 막으며, 내보낸
+                주소는 다른 기기에서도 열립니다.
+              </p>
+            </div>
+          </article>
+          <article>
+            <b>03</b>
+            <div>
+              <h3>고객이 다시 찾을 이유 만들기</h3>
+              <p>
+                매장 로고와 음식 사진, 정확한 재료 설명으로 어디서나 같은 브랜드
+                경험을 제공합니다.
+              </p>
+            </div>
+          </article>
         </div>
       </section>
       <section className="landing-section insight-section">
-        <div className="insight-head"><div><span>STORE PLAYBOOK</span><h2>운영할수록 더 좋아지는<br/>작은 매장 가이드</h2></div><p>좋은 키오스크는 설치로 끝나지 않습니다.<br/>실제 주문을 보고 다음 영업일을 더 단단하게 준비하세요.</p></div>
+        <div className="insight-head">
+          <div>
+            <span>STORE PLAYBOOK</span>
+            <h2>
+              운영할수록 더 좋아지는
+              <br />
+              작은 매장 가이드
+            </h2>
+          </div>
+          <p>
+            좋은 키오스크는 설치로 끝나지 않습니다.
+            <br />
+            실제 주문을 보고 다음 영업일을 더 단단하게 준비하세요.
+          </p>
+        </div>
         <div className="insight-grid">
-          <article className="insight-lead"><div className="insight-art"><span>12</span><i>ORDERS</i><b>↗</b></div><small>운영 가이드 · 5분</small><h3>첫 영업일에는 메뉴 수보다<br/>주문 흐름을 먼저 확인하세요.</h3><p>핵심 메뉴로 시작하고 고객이 온도·사이즈·부서를 어려움 없이 선택하는지 확인한 뒤 메뉴를 늘리는 것이 좋습니다.</p><a href="#seller-login">내 매장으로 적용하기 →</a></article>
-          <div className="insight-list"><article><span>MENU QUALITY</span><h3>음식 사진은 실제 제공 모습과 가깝게</h3><p>과장된 사진보다 밝고 선명한 한 장이 고객의 선택을 더 빠르게 만듭니다.</p></article><article><span>STOCK CONTROL</span><h3>재료 소진 전에 연결 메뉴 확인하기</h3><p>공통 재료를 연결하면 한 번의 재고 변경으로 관련 메뉴를 함께 품절 처리할 수 있습니다.</p></article><article><span>DAILY CLOSE</span><h3>자정 전에 부서별 기록 내보내기</h3><p>완료·환불·결제수단 기록을 내려받아 다음 날 운영과 정산에 활용하세요.</p></article></div>
+          <article className="insight-lead">
+            <div className="insight-art">
+              <span>12</span>
+              <i>ORDERS</i>
+              <b>↗</b>
+            </div>
+            <small>운영 가이드 · 5분</small>
+            <h3>
+              첫 영업일에는 메뉴 수보다
+              <br />
+              주문 흐름을 먼저 확인하세요.
+            </h3>
+            <p>
+              핵심 메뉴로 시작하고 고객이 온도·사이즈·부서를 어려움 없이
+              선택하는지 확인한 뒤 메뉴를 늘리는 것이 좋습니다.
+            </p>
+            <a href="#seller-login">내 매장으로 적용하기 →</a>
+          </article>
+          <div className="insight-list">
+            <article>
+              <span>MENU QUALITY</span>
+              <h3>음식 사진은 실제 제공 모습과 가깝게</h3>
+              <p>
+                과장된 사진보다 밝고 선명한 한 장이 고객의 선택을 더 빠르게
+                만듭니다.
+              </p>
+            </article>
+            <article>
+              <span>STOCK CONTROL</span>
+              <h3>재료 소진 전에 연결 메뉴 확인하기</h3>
+              <p>
+                공통 재료를 연결하면 한 번의 재고 변경으로 관련 메뉴를 함께 품절
+                처리할 수 있습니다.
+              </p>
+            </article>
+            <article>
+              <span>DAILY CLOSE</span>
+              <h3>자정 전에 부서별 기록 내보내기</h3>
+              <p>
+                완료·환불·결제수단 기록을 내려받아 다음 날 운영과 정산에
+                활용하세요.
+              </p>
+            </article>
+          </div>
         </div>
       </section>
       <section className="landing-section scenario-section">
-        <div className="scenario-copy"><span>EXAMPLE STORE STORY</span><h2>주문 한 건이<br/>완료되기까지.</h2><p>GENO Stuido의 기능이 실제 매장에서 어떻게 이어지는지 보여주는 예시 시나리오입니다.</p></div>
-        <div className="scenario-timeline"><article><i>10:02</i><div><b>고객 주문</b><p>ICE · L · 샷 1회와 부서를 선택해 주문합니다.</p></div><span>7,700원</span></article><article><i>10:02</i><div><b>판매자 알림</b><p>주문 탭이 열리고 알림음으로 새 주문을 알려줍니다.</p></div><span className="orange">NEW</span></article><article><i>10:07</i><div><b>판매 완료</b><p>결제수단과 완료시각이 기록되고 판매 분석에 반영됩니다.</p></div><span className="green">DONE</span></article></div>
+        <div className="scenario-copy">
+          <span>EXAMPLE STORE STORY</span>
+          <h2>
+            주문 한 건이
+            <br />
+            완료되기까지.
+          </h2>
+          <p>
+            GENO Stuido의 기능이 실제 매장에서 어떻게 이어지는지 보여주는 예시
+            시나리오입니다.
+          </p>
+        </div>
+        <div className="scenario-timeline">
+          <article>
+            <i>10:02</i>
+            <div>
+              <b>고객 주문</b>
+              <p>ICE · L · 샷 1회와 부서를 선택해 주문합니다.</p>
+            </div>
+            <span>7,700원</span>
+          </article>
+          <article>
+            <i>10:02</i>
+            <div>
+              <b>판매자 알림</b>
+              <p>주문 탭이 열리고 알림음으로 새 주문을 알려줍니다.</p>
+            </div>
+            <span className="orange">NEW</span>
+          </article>
+          <article>
+            <i>10:07</i>
+            <div>
+              <b>판매 완료</b>
+              <p>결제수단과 완료시각이 기록되고 판매 분석에 반영됩니다.</p>
+            </div>
+            <span className="green">DONE</span>
+          </article>
+        </div>
       </section>
-      <section className="landing-section faq-section"><div className="landing-heading"><span>BEFORE YOU START</span><h2>시작하기 전에<br/>많이 묻는 질문.</h2></div><div className="faq-list"><details open><summary>고객도 로그인해야 하나요?<Plus/></summary><p>아니요. 로그인과 회원가입은 판매자 전용이며, 소비자는 매장 전용 주소를 열어 바로 주문합니다.</p></details><details><summary>사진을 올리면 비용이 발생하나요?<Plus/></summary><p>별도 유료 이미지 API를 사용하지 않습니다. 사진을 브라우저에서 자동 압축해 현재 프로젝트 데이터에 함께 저장합니다.</p></details><details><summary>인터넷이 잠시 느리면 주문이 두 번 들어가나요?<Plus/></summary><p>각 주문에 고유 요청번호를 부여해 같은 주문이 다시 전송되더라도 하나만 생성합니다.</p></details><details><summary>무료 서버가 포화되면 자동 결제되나요?<Plus/></summary><p>무료 플랜을 유지하며 자동 유료 전환 기능을 사용하지 않습니다. 요청량 보호 모드가 먼저 작동합니다.</p></details></div></section>
-      <PartnershipSection/>
+      <section className="landing-section faq-section">
+        <div className="landing-heading">
+          <span>BEFORE YOU START</span>
+          <h2>
+            시작하기 전에
+            <br />
+            많이 묻는 질문.
+          </h2>
+        </div>
+        <div className="faq-list">
+          <details open>
+            <summary>
+              고객도 로그인해야 하나요?
+              <Plus />
+            </summary>
+            <p>
+              아니요. 로그인과 회원가입은 판매자 전용이며, 소비자는 매장 전용
+              주소를 열어 바로 주문합니다.
+            </p>
+          </details>
+          <details>
+            <summary>
+              사진을 올리면 비용이 발생하나요?
+              <Plus />
+            </summary>
+            <p>
+              별도 유료 이미지 API를 사용하지 않습니다. 사진을 브라우저에서 자동
+              압축해 현재 프로젝트 데이터에 함께 저장합니다.
+            </p>
+          </details>
+          <details>
+            <summary>
+              인터넷이 잠시 느리면 주문이 두 번 들어가나요?
+              <Plus />
+            </summary>
+            <p>
+              각 주문에 고유 요청번호를 부여해 같은 주문이 다시 전송되더라도
+              하나만 생성합니다.
+            </p>
+          </details>
+          <details>
+            <summary>
+              무료 서버가 포화되면 자동 결제되나요?
+              <Plus />
+            </summary>
+            <p>
+              무료 플랜을 유지하며 자동 유료 전환 기능을 사용하지 않습니다.
+              요청량 보호 모드가 먼저 작동합니다.
+            </p>
+          </details>
+        </div>
+      </section>
+      <PartnershipSection />
       <section className="landing-section safety-section" id="safety">
         <div>
           <span className="auth-kicker">FREE-FIRST INFRASTRUCTURE</span>
@@ -770,7 +1164,11 @@ function Studio({ user, onLogout }) {
   const latestOrderId = useRef(null);
   const ordersInitialized = useRef(false);
   const audioRef = useRef(null);
+  const dataRef = useRef(data);
   const sectionRef = useRef(section);
+  useEffect(() => {
+    dataRef.current = data;
+  }, [data]);
   useEffect(() => {
     api("/api/project")
       .then((r) => {
@@ -815,23 +1213,7 @@ function Studio({ user, onLogout }) {
     let leader = false;
     let lastNewAt = 0;
     let failures = 0;
-    const ring = () => {
-      try {
-        const ctx = audioRef.current;
-        if (!ctx) return;
-        const gain = ctx.createGain();
-        const osc = ctx.createOscillator();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(740, ctx.currentTime);
-        osc.frequency.setValueAtTime(980, ctx.currentTime + 0.12);
-        gain.gain.setValueAtTime(0.18, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start();
-        osc.stop(ctx.currentTime + 0.55);
-      } catch {}
-    };
+    const ring = () => playNotificationSound(dataRef.current.store, audioRef);
     const accept = (list) => {
       const newest = list[0];
       const hasNew =
@@ -1059,6 +1441,12 @@ function Studio({ user, onLogout }) {
             label="주문"
             active={section === "orders"}
             onClick={() => setSection("orders")}
+          />
+          <Nav
+            icon={Sparkles}
+            label="알림 소리"
+            active={section === "sound"}
+            onClick={() => setSection("sound")}
           />
           <Nav
             icon={BarChart3}
@@ -1341,6 +1729,8 @@ function Panel({
       <MediaPanel data={data} setData={setData} updateStore={updateStore} />
     );
   if (section === "analytics") return <AnalyticsPanel orders={orders} />;
+  if (section === "sound")
+    return <SoundPanel data={data} updateStore={updateStore} />;
   if (section === "settings")
     return (
       <SettingsPanel data={data} setData={setData} updateStore={updateStore} />
@@ -1502,6 +1892,140 @@ function MediaPanel({ data, setData, updateStore }) {
     </InfoPanel>
   );
 }
+function SoundPanel({ data, updateStore }) {
+  const [busy, setBusy] = useState(false);
+  const contextRef = useRef(null);
+  const store = data.store;
+  const selected = store.notificationSound || "bell";
+  const preview = (patch) =>
+    playNotificationSound({ ...store, ...patch }, contextRef);
+  const choose = (sound) => {
+    updateStore({ notificationSound: sound });
+    preview({ notificationSound: sound });
+  };
+  const upload = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setBusy(true);
+    try {
+      const notificationAudio = await readAlertMp3(file);
+      updateStore({ notificationAudio, notificationSound: "custom" });
+      preview({ notificationAudio, notificationSound: "custom" });
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setBusy(false);
+      event.target.value = "";
+    }
+  };
+  return (
+    <InfoPanel
+      title="새 주문 알림 소리"
+      subtitle="주문이 도착했을 때 확실히 들을 수 있도록 소리와 볼륨을 설정하세요."
+    >
+      <div className="sound-status">
+        <Sparkles />
+        <div>
+          <b>강한 알림 모드</b>
+          <small>기본 알림도 이전보다 더 크고 약 1.4초 동안 재생됩니다.</small>
+        </div>
+        <button onClick={() => preview({})}>미리 듣기</button>
+      </div>
+      <h3 className="section-title">기본 알림음</h3>
+      <div className="sound-grid">
+        {[
+          ["bell", "선명한 벨", "맑고 높게 3번"],
+          ["chime", "부드러운 차임", "점점 높아지는 음"],
+          ["urgent", "강한 주문 알림", "분명하게 반복되는 음"],
+        ].map(([value, name, desc]) => (
+          <button
+            key={value}
+            className={selected === value ? "on" : ""}
+            onClick={() => choose(value)}
+          >
+            <i>{selected === value ? <Check /> : "♪"}</i>
+            <span>
+              <b>{name}</b>
+              <small>{desc}</small>
+            </span>
+            <em>듣기</em>
+          </button>
+        ))}
+      </div>
+      <h3 className="section-title">알림 볼륨</h3>
+      <div className="sound-volume">
+        <span>작게</span>
+        <input
+          type="range"
+          min="10"
+          max="100"
+          value={Math.round((store.notificationVolume ?? 0.8) * 100)}
+          onChange={(event) =>
+            updateStore({
+              notificationVolume: Number(event.target.value) / 100,
+            })
+          }
+          onMouseUp={() => preview({})}
+          onTouchEnd={() => preview({})}
+        />
+        <b>{Math.round((store.notificationVolume ?? 0.8) * 100)}%</b>
+      </div>
+      <h3 className="section-title">내 MP3 사용</h3>
+      <div className={`custom-sound ${selected === "custom" ? "on" : ""}`}>
+        <div>
+          <Upload />
+          <span>
+            <b>
+              {store.notificationAudio
+                ? "등록한 MP3 알림음"
+                : "MP3 파일을 선택하세요"}
+            </b>
+            <small>2초 미만 · 최대 350KB · 프로젝트에 무료 저장</small>
+          </span>
+        </div>
+        <label>
+          {busy
+            ? "길이 확인 중..."
+            : store.notificationAudio
+              ? "MP3 변경"
+              : "MP3 선택"}
+          <input
+            type="file"
+            accept="audio/mpeg,.mp3"
+            disabled={busy}
+            onChange={upload}
+          />
+        </label>
+        {store.notificationAudio && (
+          <>
+            <button onClick={() => choose("custom")}>
+              {selected === "custom" ? "사용 중" : "이 소리 사용"}
+            </button>
+            <button
+              className="remove"
+              onClick={() =>
+                updateStore({
+                  notificationAudio: "",
+                  notificationSound: "bell",
+                })
+              }
+            >
+              <Trash2 /> 제거
+            </button>
+          </>
+        )}
+      </div>
+      <div className="sound-guide">
+        <b>소리가 들리지 않을 때</b>
+        <p>
+          브라우저의 자동재생 정책 때문에 판매자 화면을 연 뒤 한 번은 화면을
+          눌러야 합니다. 기기 자체 음량과 브라우저 탭 음소거도 확인해 주세요.
+        </p>
+      </div>
+    </InfoPanel>
+  );
+}
+
 function SettingsPanel({ data, setData, updateStore }) {
   const [department, setDepartment] = useState("");
   const departments = data.store.departments || [];
@@ -2904,7 +3428,11 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
       <header className="kiosk-head">
         <div className="kiosk-logo">
           <span>
-            {data.store.logo ? <img src={data.store.logo} alt="매장 로고" /> : <Sparkles size={16} />}
+            {data.store.logo ? (
+              <img src={data.store.logo} alt="매장 로고" />
+            ) : (
+              <Sparkles size={16} />
+            )}
           </span>
           <div>
             <b>{data.store.name}</b>
@@ -2975,7 +3503,11 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
                   className="product-image"
                   style={{ background: item.color }}
                 >
-                  {item.image ? <img src={item.image} alt={item.name} /> : <span>{item.emoji}</span>}
+                  {item.image ? (
+                    <img src={item.image} alt={item.name} />
+                  ) : (
+                    <span>{item.emoji}</span>
+                  )}
                   {item.badge && <b>{item.badge}</b>}
                   {isMenuSoldOut(item, data.store) && <i>{t.soldout}</i>}
                 </div>

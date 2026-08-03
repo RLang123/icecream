@@ -475,8 +475,8 @@ function SellerAuthForm({ mode, setMode, error, setError, busy, submit }) {
       <h2>{mode === "login" ? "내 매장으로 돌아가기" : "새 매장 시작하기"}</h2>
       <p>
         {mode === "login"
-          ? "판매자 계정으로 로그인해 오늘의 매장을 운영하세요."
-          : "비용 없이 계정을 만들고 나만의 주문 사이트를 완성하세요."}
+          ? "계정 이름과 비밀번호만 입력하면 바로 시작할 수 있어요."
+          : "이메일 없이 계정 이름과 비밀번호만으로 무료로 시작하세요."}
       </p>
       <div className="auth-mode-tabs">
         <button
@@ -500,23 +500,15 @@ function SellerAuthForm({ mode, setMode, error, setError, busy, submit }) {
           회원가입
         </button>
       </div>
-      {mode === "register" && (
-        <Field label="판매자 이름">
-          <input
-            name="name"
-            required
-            maxLength="40"
-            placeholder="이름을 입력하세요"
-          />
-        </Field>
-      )}
-      <Field label="이메일">
+      <Field label={mode === "login" ? "계정 이름" : "사용할 계정 이름"}>
         <input
-          name="email"
-          type="email"
+          name="accountName"
+          type="text"
           required
-          placeholder="owner@example.com"
-          autoComplete="email"
+          minLength="2"
+          maxLength="30"
+          placeholder="예: 민지카페"
+          autoComplete="username"
         />
       </Field>
       <Field label="비밀번호">
@@ -567,9 +559,8 @@ function AuthPage({ onAuth }) {
       const r = await api(`/api/${mode}`, {
         method: "POST",
         body: JSON.stringify({
-          email: f.get("email"),
+          accountName: f.get("accountName"),
           password: f.get("password"),
-          name: f.get("name"),
         }),
       });
       onAuth(r.user);
@@ -3285,8 +3276,8 @@ function ProfileMenu({ user, onLogout, compact = false }) {
           </div>
           <dl>
             <div>
-              <dt>이메일</dt>
-              <dd>{user.email}</dd>
+              <dt>계정 이름</dt>
+              <dd>{user.accountName || user.name}</dd>
             </div>
             <div>
               <dt>계정 유형</dt>

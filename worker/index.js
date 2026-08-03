@@ -30,6 +30,25 @@ async function currentUser(request, env) {
   if (!sid) return null;
   return env.DB.prepare(`SELECT users.id, users.email, users.name, users.role FROM sessions JOIN users ON users.id=sessions.user_id WHERE sessions.id=? AND sessions.expires_at > datetime('now')`).bind(sid).first();
 }
+function sellerAccount(input) {
+  const raw = String(input.accountName || input.email || input.name || '').trim().normalize('NFKC');
+  const legacyEmail = raw.includes('@');
+  return {
+    raw,
+    email: legacyEmail ? raw.toLowerCase() : `${encodeURIComponent(raw.toLocaleLowerCase('ko-KR'))}@account.geno`,
+    legacyEmail
+  };
+}
+function publicUser(row) {
+  const simpleAccount = String(row.email || '').endsWith('@account.geno');
+  return {
+    id: row.id,
+    email: simpleAccount ? '' : row.email,
+    accountName: simpleAccount ? row.name : row.email,
+    name: row.name,
+    role: row.role
+  };
+}
 async function body(request) { try { return await request.json(); } catch { return {}; } }
 function projectError(data){if(!data||typeof data!=='object'||!data.store||!Array.isArray(data.categories)||!Array.isArray(data.items))return '프로젝트 형식이 올바르지 않습니다.';if(data.categories.length>50||data.items.length>500)return '카테고리 또는 메뉴가 너무 많습니다.';if(!String(data.store.name||'').trim())return '매장 이름을 입력해 주세요.';const ids=new Set();for(const item of data.items){if(item.id===undefined||ids.has(String(item.id)))return '메뉴 식별자가 중복되거나 없습니다.';ids.add(String(item.id));if(!String(item.name||'').trim()||!Number.isFinite(Number(item.price))||Number(item.price)<0||Number(item.price)>10000000)return '메뉴 이름과 가격을 확인해 주세요.';}if(JSON.stringify(data).length>2500000)return '사진이 너무 많아 프로젝트 저장 용량을 초과했습니다. 일부 사진을 제거해 주세요.';return null;}
 const sessionCookie = sid => `session=${encodeURIComponent(sid)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`;
@@ -40,25 +59,26 @@ async function api(request, env, ctx) {
   const globalBlock=guarded(request,'all',1000,10000);if(globalBlock)return globalBlock;
   if (path === '/api/register' && method === 'POST') {
     const blocked=guarded(request,'register',5,300000);if(blocked)return blocked;
-    const input = await body(request); const email = String(input.email || '').trim().toLowerCase();
-    if (!email.includes('@') || String(input.password || '').length < 8) return json({ error: '입력 정보를 확인해 주세요. 비밀번호는 8자 이상이어야 합니다.' }, 400);
-    const exists = await env.DB.prepare('SELECT id FROM users WHERE email=?').bind(email).first(); if (exists) return json({ error: '이미 가입된 이메일입니다.' }, 409);
+    const input = await body(request); const account = sellerAccount(input); const email = account.email;
+    if ((!account.legacyEmail && (account.raw.length < 2 || account.raw.length > 30)) || (account.legacyEmail && !/^\S+@\S+\.\S+$/.test(account.raw)) || String(input.password || '').length < 8) return json({ error: '계정 이름은 2~30자, 비밀번호는 8자 이상 입력해 주세요.' }, 400);
+    const exists = await env.DB.prepare('SELECT id FROM users WHERE email=?').bind(email).first(); if (exists) return json({ error: '이미 사용 중인 계정 이름입니다.' }, 409);
     const id = uid(); const secured = await passwordHash(input.password); const sid = uid();
+    const name = String(input.name || account.raw || '판매자').trim().slice(0,40);
     await env.DB.batch([
-      env.DB.prepare('INSERT INTO users(id,email,name,role,password_hash,password_salt) VALUES(?,?,?,?,?,?)').bind(id,email,String(input.name||'판매자').slice(0,40),'seller',secured.hash,secured.salt),
+      env.DB.prepare('INSERT INTO users(id,email,name,role,password_hash,password_salt) VALUES(?,?,?,?,?,?)').bind(id,email,name,'seller',secured.hash,secured.salt),
       env.DB.prepare("INSERT INTO sessions(id,user_id,expires_at) VALUES(?,?,datetime('now','+30 days'))").bind(sid,id)
     ]);
-    return json({ user:{ id,email,name:input.name,role:'seller' } }, 201, { 'set-cookie': sessionCookie(sid) });
+    return json({ user:publicUser({ id,email,name,role:'seller' }) }, 201, { 'set-cookie': sessionCookie(sid) });
   }
   if (path === '/api/login' && method === 'POST') {
     const blocked=guarded(request,'login',12,300000);if(blocked)return blocked;
-    const input = await body(request); const row = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(String(input.email||'').trim().toLowerCase()).first();
-    if (!row) return json({ error:'이메일 또는 비밀번호가 올바르지 않습니다.' },401);
+    const input = await body(request); const account = sellerAccount(input); const row = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(account.email).first();
+    if (!row) return json({ error:'계정 이름 또는 비밀번호가 올바르지 않습니다.' },401);
     if (row.role !== 'seller') return json({ error:'판매자 계정으로만 로그인할 수 있습니다.' },403);
     const secured = await passwordHash(String(input.password||''),hexToBytes(row.password_salt));
-    if (secured.hash !== row.password_hash) return json({ error:'이메일 또는 비밀번호가 올바르지 않습니다.' },401);
+    if (secured.hash !== row.password_hash) return json({ error:'계정 이름 또는 비밀번호가 올바르지 않습니다.' },401);
     const sid=uid(); await env.DB.prepare("INSERT INTO sessions(id,user_id,expires_at) VALUES(?,?,datetime('now','+30 days'))").bind(sid,row.id).run();
-    return json({user:{id:row.id,email:row.email,name:row.name,role:row.role}},200,{'set-cookie':sessionCookie(sid)});
+    return json({user:publicUser(row)},200,{'set-cookie':sessionCookie(sid)});
   }
   if (path === '/api/logout' && method === 'POST') { const sid=cookies(request).session; if(sid) await env.DB.prepare('DELETE FROM sessions WHERE id=?').bind(sid).run(); return json({ok:true},200,{'set-cookie':'session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'}); }
   if(path.startsWith('/api/store/') && method==='GET') { const slug=decodeURIComponent(path.split('/').pop()); if(!/^store-[a-z0-9-]{8,40}$/.test(slug))return json({error:'잘못된 매장 주소입니다.'},400);const cache=caches.default;const cacheKey=new Request(url.toString(),{method:'GET'});const cached=await cache.match(cacheKey);if(cached)return cached;const blocked=guarded(request,'store',600,60000);if(blocked)return blocked;const project=await env.DB.prepare('SELECT data,slug,updated_at FROM projects WHERE slug=?').bind(slug).first(); if(!project)return json({error:'존재하지 않거나 아직 내보내지 않은 매장입니다.'},404); try{const response=json({data:JSON.parse(project.data),slug:project.slug},200,{'cache-control':'public, max-age=15, stale-while-revalidate=60','x-geno-cache':'miss'});ctx.waitUntil(cache.put(cacheKey,response.clone()));return response}catch{return json({error:'매장 데이터를 불러올 수 없습니다.'},500)} }
@@ -75,7 +95,7 @@ async function api(request, env, ctx) {
     const inserted=await env.DB.prepare('INSERT OR IGNORE INTO orders(id,seller_id,customer_id,customer_name,items,total,dining_type,department,request_key) VALUES(?,?,?,?,?,?,?,?,?)').bind(id,project.owner_id,null,customerName,JSON.stringify(safeItems),total,diningType,department||null,requestKey).run();if(!inserted.meta.changes){const existing=await env.DB.prepare('SELECT id,total FROM orders WHERE seller_id=? AND request_key=?').bind(project.owner_id,requestKey).first();if(existing)return json({id:existing.id,number:existing.id.slice(0,4).toUpperCase(),total:existing.total,deduplicated:true},200);return json({error:'주문 접수가 충돌했습니다. 다시 시도해 주세요.'},409)}return json({id,number:id.slice(0,4).toUpperCase(),total},201);
   }
   const user = await currentUser(request,env); if(!user) return json({error:'로그인이 필요합니다.'},401);
-  if(path==='/api/me') {if(user.role!=='seller')return json({error:'판매자 로그인이 필요합니다.'},403);return json({user});}
+  if(path==='/api/me') {if(user.role!=='seller')return json({error:'판매자 로그인이 필요합니다.'},403);return json({user:publicUser(user)});}
   if(path==='/api/project' && method==='GET') { if(user.role!=='seller')return json({error:'권한이 없습니다.'},403); const p=await env.DB.prepare('SELECT data,slug FROM projects WHERE owner_id=?').bind(user.id).first();if(!p)return json({data:null,slug:null});try{return json({data:JSON.parse(p.data),slug:p.slug||null})}catch{return json({error:'저장된 프로젝트를 읽을 수 없습니다.'},500)} }
   if(path==='/api/project' && method==='PUT') { if(user.role!=='seller')return json({error:'권한이 없습니다.'},403); const input=await body(request);const invalid=projectError(input.data);if(invalid)return json({error:invalid},400);const existing=await env.DB.prepare('SELECT slug FROM projects WHERE owner_id=?').bind(user.id).first(); const slug=existing?.slug||makeSlug(); await env.DB.prepare(`INSERT INTO projects(owner_id,data,slug,updated_at) VALUES(?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(owner_id) DO UPDATE SET data=excluded.data,updated_at=CURRENT_TIMESTAMP`).bind(user.id,JSON.stringify(input.data),slug).run();ctx.waitUntil(caches.default.delete(new Request(`${url.origin}/api/store/${slug}`))); return json({ok:true,slug}); }
   if(path==='/api/export' && method==='POST') { if(user.role!=='seller')return json({error:'권한이 없습니다.'},403); let project=await env.DB.prepare('SELECT slug FROM projects WHERE owner_id=?').bind(user.id).first(); if(!project)return json({error:'먼저 매장을 한 번 저장해 주세요.'},400); if(!project.slug){const slug=makeSlug();await env.DB.prepare('UPDATE projects SET slug=? WHERE owner_id=?').bind(slug,user.id).run();project={slug}} return json({slug:project.slug}); }

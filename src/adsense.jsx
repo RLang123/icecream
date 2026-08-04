@@ -35,7 +35,6 @@ export function AdSlot({ pathname, config = adsenseConfig(), label = "광고" })
   if (!active) return null;
   return (
     <aside className="content-ad" aria-label={label}>
-      <span>ADVERTISEMENT</span>
       <ins
         className="adsbygoogle"
         style={{ display: "block" }}

@@ -42,6 +42,9 @@ test("공개 콘텐츠 페이지는 기본 접근성 구조와 모바일 규칙�
   assert.match(source,/<main /);assert.match(source,/<h1>/);assert.match(source,/<nav aria-label=/);assert.match(source,/<footer /);
   const adSource=await readFile(new URL("../src/adsense.jsx",import.meta.url),"utf8");
   assert.match(adSource,/if \(!active\) return null/);
+  assert.doesNotMatch(adSource,/ADVERTISEMENT/);
+  assert.doesNotMatch(source,/사용자 입력 필요|Stuido/);
+  assert.ok(source.indexOf('<div className="content-sections">') < source.indexOf('<AdSlot pathname={pathname}'));
   const css=await readFile(new URL("../src/public-content.css",import.meta.url),"utf8");
   assert.match(css,/@media\(max-width:700px\)/);
   assert.match(css,/@media\(max-width:420px\)/);

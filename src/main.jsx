@@ -378,7 +378,7 @@ function PartnershipSection() {
       <div className="partnership-copy">
         <span>PARTNERSHIP</span>
         <h2>
-          GENO Stuido와
+          GENO Studio와
           <br />
           함께 만들고 싶나요?
         </h2>
@@ -395,7 +395,7 @@ function PartnershipSection() {
         </div>
       </div>
       <form className="partnership-form" onSubmit={submit}>
-        <input type="hidden" name="_subject" value="GENO Stuido 새 제휴 문의" />
+        <input type="hidden" name="_subject" value="GENO Studio 새 제휴 문의" />
         <label>
           <span>회사·매장명</span>
           <input
@@ -621,7 +621,7 @@ function AuthPage({ onAuth }) {
             <Sparkles size={18} />
           </div>
           <span>GENO</span>
-          <b>Stuido</b>
+          <b>Studio</b>
         </div>
         <div>
           <a href="#features">기능</a>
@@ -642,7 +642,7 @@ function AuthPage({ onAuth }) {
                 <Sparkles size={18} />
               </div>
               <span>GENO</span>
-              <b>Stuido</b>
+              <b>Studio</b>
             </div>
             <span className="auth-live">
               <i /> ALL-IN-ONE KIOSK STUDIO
@@ -849,7 +849,7 @@ function AuthPage({ onAuth }) {
               <div className="brandmark">
                 <Sparkles />
               </div>
-              <span>GENO Stuido</span>
+              <span>GENO Studio</span>
               <small>안전한 판매자 작업실</small>
             </div>
             <SellerAuthForm
@@ -1107,7 +1107,7 @@ function AuthPage({ onAuth }) {
             완료되기까지.
           </h2>
           <p>
-            GENO Stuido의 기능이 실제 매장에서 어떻게 이어지는지 보여주는 예시
+            GENO Studio의 기능이 실제 매장에서 어떻게 이어지는지 보여주는 예시
             시나리오입니다.
           </p>
         </div>
@@ -1220,7 +1220,7 @@ function AuthPage({ onAuth }) {
             <Sparkles />
           </div>
           <span>GENO</span>
-          <b>Stuido</b>
+          <b>Studio</b>
         </div>
         <p>메뉴가 주문이 되고, 주문이 매장의 성장이 되는 곳.</p>
         <a href="#seller-login">SELLER WORKSPACE ↗</a>
@@ -1522,7 +1522,7 @@ function Studio({ user, onLogout }) {
             <Sparkles size={18} />
           </div>
           <span>GENO</span>
-          <b>Stuido</b>
+          <b>Studio</b>
         </div>
         <div className="project-title">
           <span className="status-dot" /> {data.store.name}
@@ -3377,8 +3377,8 @@ function ProfileMenu({ user, onLogout, compact = false }) {
               <b>{user.name}</b>
               <small>
                 {user.role === "seller"
-                  ? "GENO Stuido 판매자"
-                  : "GENO Stuido 고객"}
+                  ? "GENO Studio 판매자"
+                  : "GENO Studio 고객"}
               </small>
             </div>
           </div>

@@ -12,10 +12,7 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "sundae-studio-db"
+      "database_name": "geno-studio-db"
     }
-  ],
-  "triggers": {
-    "crons": ["0 15 * * *"]
-  }
+  ]
 }

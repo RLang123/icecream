@@ -28,8 +28,7 @@ test("장바구니에 담은 뒤 재료가 소진되면 주문 API가 메뉴와 
             return this;
           },
           async run() {
-            assert.match(sql, /^DELETE FROM orders/);
-            return { meta: { changes: 0 } };
+            throw new Error(`Unexpected run query: ${sql}`);
           },
           async first() {
             assert.match(sql, /SELECT owner_id,data FROM projects/);
@@ -54,4 +53,23 @@ test("장바구니에 담은 뒤 재료가 소진되면 주문 API가 메뉴와 
   assert.equal(response.status, 409);
   assert.match(result.error, /A 메뉴/);
   assert.match(result.error, /재료 A/);
+});
+
+test("서버가 클라이언트 가격을 무시하고 최신 메뉴 가격으로 계산한다", async () => {
+  let inserted;
+  const project = { owner_id: "seller-1", data: JSON.stringify({ store: { name: "매장", ingredients: [] }, categories: ["전체"], items: [{ id: "menu-1", name: "메뉴", price: 7000, soldout: false, ingredientIds: [], temperatureMode: "none", sizesEnabled: false }] }) };
+  const env = { DB: { prepare(sql) { let args=[]; return { bind(...values){args=values;return this;}, async first(){ if(sql.includes("FROM projects")) return project; if(sql.includes("request_key")) return null; throw new Error(sql); }, async run(){ assert.match(sql,/INSERT OR IGNORE/); inserted=args; return {meta:{changes:1}}; } }; } } };
+  const response = await api(new Request("https://example.com/api/orders", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({storeSlug:"store-test1234",items:[{id:"menu-1",qty:2,temperature:"ICE",size:"S",price:1}],requestKey:"price-recalc-123456"}) }), env, {waitUntil(){}});
+  const result = await response.json();
+  assert.equal(response.status,201);
+  assert.equal(result.total,14000);
+  assert.equal(inserted[5],14000);
+});
+
+test("동일 request_key의 주문은 기존 주문을 반환한다", async () => {
+  const project = { owner_id:"seller-1", data:JSON.stringify({store:{name:"매장",ingredients:[]},categories:["전체"],items:[{id:"m",name:"메뉴",price:1000,temperatureMode:"none",sizesEnabled:false}]}) };
+  const env={DB:{prepare(sql){return{bind(){return this;},async first(){if(sql.includes("FROM projects"))return project;if(sql.includes("request_key"))return{id:"existing-order",total:1000};throw new Error(sql);},async run(){throw new Error("insert must not run");}};}}};
+  const response=await api(new Request("https://example.com/api/orders",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({storeSlug:"store-test1234",items:[{id:"m",qty:1}],requestKey:"duplicate-key-1234"})}),env,{waitUntil(){}});
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).deduplicated,true);
 });

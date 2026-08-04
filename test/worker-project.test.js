@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { api } from "../worker/index.js";
+import { api, projectError } from "../worker/index.js";
 
 test("저장 후 다시 불러와도 재료 상태와 메뉴 연결이 유지된다", async () => {
   let savedProject = null;
@@ -66,4 +66,10 @@ test("저장 후 다시 불러와도 재료 상태와 메뉴 연결이 유지된
   assert.equal(result.data.store.ingredients[0].available, false);
   assert.equal(result.data.store.ingredients[0].name, "재료 A");
   assert.deepEqual(result.data.items[0].ingredientIds, ["a"]);
+});
+
+test("잘못된 프로젝트 데이터와 고아 재료 참조를 구체적으로 거부한다", () => {
+  assert.match(projectError({store:{name:"매장",ingredients:[]},categories:["전체","전체"],items:[]}),/중복/);
+  assert.match(projectError({store:{name:"매장",ingredients:[]},categories:["전체"],items:[{id:"m",name:"메뉴",price:1000,category:"전체",ingredientIds:["missing"]}]}),/존재하지 않는 재료/);
+  assert.match(projectError({store:{name:"매장",ingredients:[]},categories:["전체"],items:[{id:"m",name:"메뉴",price:-1,category:"전체"}]}),/가격/);
 });

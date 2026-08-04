@@ -40,6 +40,11 @@ test("재료 연결이 없는 과거 메뉴는 판매 가능하다", () => {
   assert.equal(getMenuAvailability({ soldout: false }, {}).soldOut, false);
 });
 
+test("존재하지 않는 재료 ID는 읽기 호환 정규화에서 제거된다", () => {
+  const normalized = normalizeProjectIngredientData({store:{ingredients:[{id:"a",name:"A"}]},items:[{id:"m",ingredientIds:["missing"]}]});
+  assert.deepEqual(normalized.items[0].ingredientIds, []);
+});
+
 test("과거 데이터는 빈 배열로 보정하고 고아 및 중복 참조를 제거한다", () => {
   const normalized = normalizeProjectIngredientData({
     store: {},

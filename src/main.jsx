@@ -466,7 +466,32 @@ function PartnershipSection() {
   );
 }
 
-function SellerAuthForm({ mode, setMode, error, setError, busy, submit }) {
+function TurnstileWidget({ siteKey, action, onToken }) {
+  const target = useRef(null);
+  useEffect(() => {
+    let widgetId; let cancelled = false;
+    const render = () => {
+      if (cancelled || !target.current || !window.turnstile) return;
+      widgetId = window.turnstile.render(target.current, {
+        sitekey: siteKey, action, callback: onToken,
+        'expired-callback': () => onToken(''), 'error-callback': () => onToken(''),
+      });
+    };
+    const existing = document.querySelector('script[data-geno-turnstile]');
+    if (window.turnstile) render();
+    else if (existing) existing.addEventListener('load', render, { once: true });
+    else {
+      const script = document.createElement('script');
+      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+      script.async = true; script.defer = true; script.dataset.genoTurnstile = 'true';
+      script.addEventListener('load', render, { once: true }); document.head.appendChild(script);
+    }
+    return () => { cancelled = true;if (widgetId !== undefined && window.turnstile) window.turnstile.remove(widgetId); };
+  }, [siteKey, action, onToken]);
+  return <div ref={target} className="auth-turnstile" />;
+}
+
+function SellerAuthForm({ mode, setMode, error, setError, busy, submit, turnstile, turnstileReset, onTurnstileToken }) {
   return (
     <form className="auth-form seller-auth-modal-form" onSubmit={submit}>
       <div className="auth-form-icon">
@@ -522,6 +547,7 @@ function SellerAuthForm({ mode, setMode, error, setError, busy, submit }) {
           autoComplete={mode === "login" ? "current-password" : "new-password"}
         />
       </Field>
+      {turnstile.enabled && <TurnstileWidget key={`${mode}-${turnstileReset}`} siteKey={turnstile.siteKey} action={mode} onToken={onTurnstileToken} />}
       {error && <div className="auth-error">{error}</div>}
       <button className="auth-submit" disabled={busy}>
         {busy
@@ -551,8 +577,14 @@ function AuthPage({ onAuth }) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [turnstile, setTurnstile] = useState({ enabled: false, siteKey: '' });
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const [turnstileReset, setTurnstileReset] = useState(0);
+  useEffect(() => { api('/api/auth-config').then(result => setTurnstile(result.turnstile || { enabled:false, siteKey:'' })).catch(() => {}); }, []);
+  useEffect(() => { setTurnstileToken('');setTurnstileReset(value => value + 1); }, [mode]);
   const submit = async (e) => {
     e.preventDefault();
+    if (turnstile.enabled && !turnstileToken) { setError('사람인지 확인을 완료해 주세요.');return; }
     setBusy(true);
     setError("");
     const f = new FormData(e.currentTarget);
@@ -562,11 +594,13 @@ function AuthPage({ onAuth }) {
         body: JSON.stringify({
           accountName: f.get("accountName"),
           password: f.get("password"),
+          turnstileToken,
         }),
       });
       onAuth(r.user);
     } catch (err) {
       setError(err.message);
+      if (turnstile.enabled) { setTurnstileToken('');setTurnstileReset(value => value + 1); }
     } finally {
       setBusy(false);
     }
@@ -817,6 +851,9 @@ function AuthPage({ onAuth }) {
               setError={setError}
               busy={busy}
               submit={submit}
+              turnstile={turnstile}
+              turnstileReset={turnstileReset}
+              onTurnstileToken={setTurnstileToken}
             />
           </div>
         </div>

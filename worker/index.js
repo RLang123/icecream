@@ -6,7 +6,8 @@ const makeSlug = () => `store-${crypto.randomUUID().slice(0, 8)}`;
 const enc = new TextEncoder();
 const traffic = new Map();
 export const PASSWORD_POLICY = Object.freeze({ algorithm: 'PBKDF2', hash: 'SHA-256', iterations: 100000, bits: 256, saltBytes: 16 });
-const MAX_REQUEST_BYTES = 2_600_000;
+const MAX_REQUEST_BYTES = 1_900_000;
+const logError = (request, code) => console.error(JSON.stringify({ event:'GENO_API_ERROR', code, path:new URL(request.url).pathname, method:request.method, rayId:request.headers.get('cf-ray')||null }));
 
 function throttle(request, scope, limit, windowMs) {
   const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0] || 'local';
@@ -129,11 +130,32 @@ export function projectError(data) {
     if (item.category !== undefined && (!validText(item.category, 50, true) || !categories.has(item.category))) return `${item.name}의 카테고리 "${String(item.category)}"가 카테고리 목록에 없습니다.`;
     if (item.image !== undefined && (!validText(item.image, 100000) || (item.image.startsWith('data:') && item.image.length > 70000))) return `${item.name}의 이미지가 너무 큽니다. 이미지를 다시 압축해 주세요.`;
   }
-  if (JSON.stringify(data).length > 2500000) return '프로젝트가 2.5MB 저장 한도를 초과했습니다. 사진이나 불필요한 데이터를 줄여 주세요.';
+  if (enc.encode(JSON.stringify(data)).byteLength > 1800000) return '프로젝트가 1.8MB 저장 한도를 초과했습니다. 사진이나 불필요한 데이터를 줄여 주세요.';
   return null;
 }
 const sessionCookie = sid => `session=${encodeURIComponent(sid)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=2592000`;
 const expiredSessionCleanup = env => env.DB.prepare("DELETE FROM sessions WHERE expires_at <= datetime('now')").run();
+function turnstileState(env) {
+  const requested = String(env.TURNSTILE_REQUIRED || '').toLowerCase() === 'true';
+  const hostnames = String(env.TURNSTILE_HOSTNAMES || '').split(',').map(value => value.trim()).filter(Boolean);
+  const configured = Boolean(env.TURNSTILE_SITE_KEY && env.TURNSTILE_SECRET && hostnames.length);
+  return { requested, configured, required: requested && configured, hostnames };
+}
+async function verifyTurnstile(request, env, token, expectedAction) {
+  const state = turnstileState(env);
+  if (!state.required) return true;
+  if (typeof token !== 'string' || token.length < 1 || token.length > 2048) return false;
+  const params = new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: token });
+  const remoteIp = request.headers.get('cf-connecting-ip'); if (remoteIp) params.set('remoteip', remoteIp);
+  try {
+    const response = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: params, signal: AbortSignal.timeout(8000),
+    });
+    if (!response.ok) return false;
+    const result = await response.json();
+    return result?.success === true && result.action === expectedAction && state.hostnames.includes(result.hostname);
+  } catch { return false; }
+}
 function originError(request) {
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return null;
   if (request.headers.get('sec-fetch-site') === 'cross-site') return '다른 사이트에서 보낸 요청은 허용되지 않습니다.';
@@ -147,9 +169,15 @@ export async function api(request, env, ctx) {
   const url = new URL(request.url); const path = url.pathname; const method = request.method;
   const globalBlock=guarded(request,'all',1000,10000);if(globalBlock)return globalBlock;
   const invalidOrigin=originError(request);if(invalidOrigin)return json({error:invalidOrigin,code:'ORIGIN_REJECTED'},403,{'cache-control':'no-store'});
+  if (path === '/api/health' && method === 'GET') {
+    try { const result=await env.DB.prepare('SELECT 1 AS ok').first();if(result?.ok!==1)return json({ok:false,code:'HEALTH_DB_FAILED'},503,{'cache-control':'no-store'});const turnstile=turnstileState(env);return json({ok:true,database:'ready',turnstile:turnstile.required?'required':turnstile.requested?'configuration-incomplete':'optional'},200,{'cache-control':'no-store'}); }
+    catch { logError(request,'HEALTH_DB_FAILED');return json({ok:false,code:'HEALTH_DB_FAILED'},503,{'cache-control':'no-store'}); }
+  }
+  if (path === '/api/auth-config' && method === 'GET') { const state=turnstileState(env);return json({turnstile:{enabled:state.required,siteKey:state.required?env.TURNSTILE_SITE_KEY:''}},200,{'cache-control':'no-store'}); }
   if (path === '/api/register' && method === 'POST') {
     const blocked=guarded(request,'register',5,300000);if(blocked)return blocked;
     const input = await body(request); const account = sellerAccount(input); const email = account.email;
+    if(!await verifyTurnstile(request,env,input.turnstileToken,'register'))return json({error:'사람인지 확인하지 못했습니다. 확인 상자를 다시 완료해 주세요.',code:'TURNSTILE_REJECTED'},403);
     if ((!account.legacyEmail && (account.raw.length < 2 || account.raw.length > 30)) || (account.legacyEmail && !/^\S+@\S+\.\S+$/.test(account.raw)) || String(input.password || '').length < 8) return json({ error: '계정 이름은 2~30자, 비밀번호는 8자 이상 입력해 주세요.' }, 400);
     const exists = await env.DB.prepare('SELECT id FROM users WHERE email=?').bind(email).first(); if (exists) return json({ error: '이미 사용 중인 계정 이름입니다.' }, 409);
     const id = uid(); const secured = await passwordHash(input.password); const sid = uid();
@@ -162,8 +190,10 @@ export async function api(request, env, ctx) {
   }
   if (path === '/api/login' && method === 'POST') {
     const blocked=guarded(request,'login',12,300000);if(blocked)return blocked;
+    const input = await body(request); const account = sellerAccount(input);
+    if(!await verifyTurnstile(request,env,input.turnstileToken,'login'))return json({error:'사람인지 확인하지 못했습니다. 확인 상자를 다시 완료해 주세요.',code:'TURNSTILE_REJECTED'},403);
     await expiredSessionCleanup(env);
-    const input = await body(request); const account = sellerAccount(input); const row = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(account.email).first();
+    const row = await env.DB.prepare('SELECT * FROM users WHERE email=?').bind(account.email).first();
     if (!row) return json({ error:'계정 이름 또는 비밀번호가 올바르지 않습니다.' },401);
     if (row.role !== 'seller') return json({ error:'판매자 계정으로만 로그인할 수 있습니다.' },403);
     const secured = await passwordHash(String(input.password||''),hexToBytes(row.password_salt));
@@ -171,7 +201,7 @@ export async function api(request, env, ctx) {
     const sid=uid(); await env.DB.prepare("INSERT INTO sessions(id,user_id,expires_at) VALUES(?,?,datetime('now','+30 days'))").bind(sid,row.id).run();
     return json({user:publicUser(row)},200,{'set-cookie':sessionCookie(sid)});
   }
-  if (path === '/api/logout' && method === 'POST') { const sid=cookies(request).session; if(sid) await env.DB.prepare('DELETE FROM sessions WHERE id=?').bind(sid).run(); return json({ok:true},200,{'set-cookie':'session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'}); }
+  if (path === '/api/logout' && method === 'POST') { const sid=cookies(request).session; if(sid) await env.DB.prepare('DELETE FROM sessions WHERE id=?').bind(sid).run();await expiredSessionCleanup(env);return json({ok:true},200,{'set-cookie':'session=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0'}); }
   if(path.startsWith('/api/store/') && method==='GET') { const slug=decodeURIComponent(path.split('/').pop()); if(!/^store-[a-z0-9-]{8,40}$/.test(slug))return json({error:'잘못된 매장 주소입니다.'},400);const blocked=guarded(request,'store',600,60000);if(blocked)return blocked;const project=await env.DB.prepare('SELECT data,slug,updated_at FROM projects WHERE slug=?').bind(slug).first(); if(!project)return json({error:'존재하지 않거나 아직 내보내지 않은 매장입니다.'},404); try{return json({data:normalizeProjectIngredientData(JSON.parse(project.data)),slug:project.slug},200,{'cache-control':'no-store'})}catch{return json({error:'매장 데이터를 불러올 수 없습니다.'},500)} }
   if(path==='/api/orders' && method==='POST') {
     const blocked=guarded(request,'order',60,60000);if(blocked)return blocked;
@@ -203,4 +233,4 @@ export async function api(request, env, ctx) {
   return json({error:'찾을 수 없습니다.'},404);
 }
 
-export default { async fetch(request,env,ctx) { const url=new URL(request.url); if(url.pathname.startsWith('/api/')){if(!env.DB)return json({error:'Cloudflare에 D1 데이터베이스가 연결되지 않았습니다. DB 바인딩을 확인해 주세요.',code:'DB_BINDING_MISSING'},503);try{return await api(request,env,ctx)}catch(error){const status=Number(error?.status);if(status>=400&&status<500)return json({error:error.publicMessage||'요청을 처리할 수 없습니다.',code:error.message},status,{'cache-control':'no-store'});console.error(JSON.stringify({event:'GENO_API_ERROR',code:'DATABASE_NOT_READY',path:url.pathname,method:request.method}));return json({error:'서버에서 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.',code:'DATABASE_NOT_READY'},503,{'cache-control':'no-store'})}} const asset=await env.ASSETS.fetch(request);const response=new Response(asset.body,asset);response.headers.set('x-content-type-options','nosniff');response.headers.set('referrer-policy','strict-origin-when-cross-origin');response.headers.set('x-frame-options','SAMEORIGIN');response.headers.set('permissions-policy','camera=(), microphone=(), geolocation=()');return response; } };
+export default { async fetch(request,env,ctx) { const url=new URL(request.url); if(url.pathname.startsWith('/api/')){if(!env.DB)return json({error:'Cloudflare에 D1 데이터베이스가 연결되지 않았습니다. DB 바인딩을 확인해 주세요.',code:'DB_BINDING_MISSING'},503);try{return await api(request,env,ctx)}catch(error){const status=Number(error?.status);if(status>=400&&status<500)return json({error:error.publicMessage||'요청을 처리할 수 없습니다.',code:error.message},status,{'cache-control':'no-store'});logError(request,'DATABASE_NOT_READY');return json({error:'서버에서 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요.',code:'DATABASE_NOT_READY'},503,{'cache-control':'no-store'})}} const asset=await env.ASSETS.fetch(request);const response=new Response(asset.body,asset);response.headers.set('x-content-type-options','nosniff');response.headers.set('referrer-policy','strict-origin-when-cross-origin');response.headers.set('x-frame-options','SAMEORIGIN');response.headers.set('permissions-policy','camera=(), microphone=(), geolocation=()');return response; } };

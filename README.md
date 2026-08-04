@@ -42,4 +42,45 @@ CONFIRM_REMOTE_D1=geno-studio-db npm run db:remote
 - 로그인 성공 시 만료 세션을 정리하고, 쿠키는 `HttpOnly; Secure; SameSite=Lax`입니다.
 - 메모리 기반 요청 제한은 Worker 인스턴스 간 공유되지 않는 보조 장치일 뿐입니다. 운영 방어에는 Turnstile, WAF Rate Limiting 또는 공유 상태 저장소를 별도로 검토해야 합니다.
 
+## 무료 Turnstile 활성화
+
+코드는 회원가입(`register`)과 로그인(`login`)에서 Turnstile 토큰을 Worker가 Siteverify로 확인하도록 준비되어 있습니다. 토큰의 성공 여부, action, hostname을 모두 검사합니다. 키가 없거나 `TURNSTILE_REQUIRED`가 `true`가 아니면 기존 로그인은 그대로 동작합니다.
+
+1. Cloudflare 대시보드의 Turnstile에서 무료 Managed 위젯을 사람이 생성합니다. 새 리소스는 코드가 자동 생성하지 않습니다.
+2. 위젯 허용 호스트에 실제 Production 도메인을 등록합니다. 로컬 시험용 위젯은 `localhost`, `127.0.0.1`을 별도로 사용하고 Production 허용 목록에는 넣지 마세요.
+3. Pages → Settings → Variables and Secrets에서 다음을 설정합니다.
+   - `TURNSTILE_SITE_KEY`: 공개 사이트 키
+   - `TURNSTILE_SECRET`: 반드시 Encrypt한 Secret
+   - `TURNSTILE_HOSTNAMES`: 쉼표로 구분한 정확한 Production hostname
+4. 먼저 Preview에서 세 값을 넣고 `/api/health`의 `turnstile`이 `optional`인지 확인합니다.
+5. 마지막에 `TURNSTILE_REQUIRED=true`를 추가해 새 배포를 만든 뒤 `turnstile: required`와 실제 로그인 성공·토큰 재사용 실패를 확인합니다.
+
+설정이 일부 빠진 상태에서 `TURNSTILE_REQUIRED=true`만 들어가면 서비스 중단 대신 `/api/health`가 `configuration-incomplete`를 반환하고 기존 인증은 유지됩니다. 이 상태를 보호 완료로 간주하면 안 됩니다. Secret과 토큰은 로그에 기록하지 않습니다.
+
+## 상태 확인
+
+`GET /api/health`는 D1에 `SELECT 1`만 실행합니다. 정상은 `200 { ok: true }`, DB 미연결·응답 실패는 503이며 사용자 데이터와 테이블 구조를 반환하지 않습니다. 외부 무료 모니터링 서비스는 추가하지 않았으므로 배포 직후와 장애 신고 시 직접 확인하세요.
+
+## 무료 WAF 속도 제한
+
+Cloudflare Free zone은 Rate Limiting 규칙 1개를 제공할 수 있습니다. 자체 도메인이 Cloudflare zone에 연결된 경우 Security → WAF → Rate limiting rules에서 경로 `/api/login`을 우선 보호하는 것을 권장합니다. 로그인은 기존 계정 탈취 시도가 반복되는 표면이기 때문입니다. Free 규칙은 경로 기준과 IP 집계 등 제한된 조건만 지원하므로 대시보드에서 제공되는 값 안에서 10초 단위의 완화된 Managed Challenge로 시작하고 정상 사용자를 관찰하세요. `*.pages.dev`는 사용자가 소유한 zone이 아니므로 해당 Pages 기본 도메인에 zone WAF 규칙을 임의 적용할 수 없습니다. 코드의 메모리 제한은 여러 Worker 인스턴스에 공유되지 않는 보조 장치입니다.
+
+## 백업과 복구 범위
+
+- 프로젝트 JSON 내보내기: 매장 디자인, 메뉴, 재료 설정만 포함합니다. 사용자 계정, 비밀번호 해시, 세션, 주문, 결제 시도는 포함하지 않습니다.
+- 주문 CSV: 화면에 조회된 최근 150건 중 판매 완료 주문만 포함합니다. 계정, 프로젝트 원본, 대기·취소 주문, 전체 결제시도 행을 완전하게 백업하지 않습니다.
+- 전체 복구: D1 production 저장소의 Time Travel을 사용합니다. Free 보존 기간은 7일이며 별도 활성화나 추가 비용은 없지만, restore는 운영 DB를 덮어쓰는 파괴적 작업입니다. 장애 시 먼저 `wrangler d1 info geno-studio-db`로 production 저장소인지 확인하고, `wrangler d1 time-travel info geno-studio-db --timestamp=<RFC3339>`로 복구 지점을 확인한 다음 운영 승인 후 restore해야 합니다. 이번 작업에서는 restore를 실행하지 않았습니다.
+
+자동 자정 삭제는 계속 비활성화되어 있습니다. 다시 도입하려면 최소 7일 이상 보관 기간, 삭제 전 프로젝트 JSON·주문 CSV 확인, D1 Time Travel 복구 가능 여부, 담당자 승인과 삭제 건수 상한을 먼저 정해야 합니다. 현재 Pages Git 배포에 Cron이 실행된다고 주장하지 않습니다.
+
+## Free 사용량 확인
+
+Cloudflare 대시보드에서 Workers & Pages → 프로젝트 → Metrics의 요청·오류·CPU와 D1 → `geno-studio-db` → Metrics → Row Metrics의 rows read/written 및 저장 용량을 매일 확인하세요.
+
+- Workers Free: 하루 100,000 요청. 초과 시 추가 과금 대신 요청이 실패할 수 있습니다.
+- D1 Free: 하루 5백만 rows read, 10만 rows written, DB당 500MB, 계정 전체 5GB. 초과 시 쿼리나 쓰기가 다음 UTC 초기화까지 실패할 수 있습니다.
+- 주문 목록은 판매자별 인덱스를 사용해 최근 150건만 조회합니다. 현재 화면에는 다음 페이지 기능이 없으므로 장기 주문 열람이 필요하면 cursor 페이지네이션을 후속 구현해야 합니다.
+- 공개 매장 API는 `no-store`로 가격과 품절 최신성을 우선하며 화면이 10초마다 갱신합니다. 주문 API는 항상 최신 D1 데이터를 재검증합니다.
+- 프로젝트 JSON은 D1 단일 행 제한보다 여유 있게 1.8MB로 제한합니다.
+
 문자·카카오 알림톡과 계정 복구 이메일은 외부 서비스와 제품 정책이 필요하므로 구현하지 않았습니다.

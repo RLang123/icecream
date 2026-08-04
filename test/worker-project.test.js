@@ -73,3 +73,12 @@ test("잘못된 프로젝트 데이터와 고아 재료 참조를 구체적으�
   assert.match(projectError({store:{name:"매장",ingredients:[]},categories:["전체"],items:[{id:"m",name:"메뉴",price:1000,category:"전체",ingredientIds:["missing"]}]}),/존재하지 않는 재료/);
   assert.match(projectError({store:{name:"매장",ingredients:[]},categories:["전체"],items:[{id:"m",name:"메뉴",price:-1,category:"전체"}]}),/가격/);
 });
+
+test("프로젝트 변경 후 공개 매장 API가 최신 데이터를 반환한다", async () => {
+  let name='이전 메뉴';
+  const env={DB:{prepare(){return{bind(){return this;},async first(){return{slug:'store-refresh1',updated_at:'now',data:JSON.stringify({store:{name:'매장'},categories:['전체'],items:[{id:'m',name,price:1000}]})};}};}}};
+  const request=()=>new Request('https://example.com/api/store/store-refresh1');
+  assert.equal((await (await api(request(),env,{})).json()).data.items[0].name,'이전 메뉴');
+  name='최신 메뉴';
+  const response=await api(request(),env,{});assert.equal(response.headers.get('cache-control'),'no-store');assert.equal((await response.json()).data.items[0].name,'최신 메뉴');
+});

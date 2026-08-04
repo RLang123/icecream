@@ -55,6 +55,8 @@ test("AdSense 확인 메타 태그와 ads.txt 게시자 ID가 정확하다", asy
   const ads=await readFile(new URL("../public/ads.txt",import.meta.url),"utf8");
   assert.match(html,/<meta name="google-adsense-account" content="ca-pub-4934943702995460"/);
   assert.equal(ads.trim(),"google.com, pub-4934943702995460, DIRECT, f08c47fec0942fa0");
+  assert.equal(html.match(/<meta name="google-adsense-account" content="ca-pub-4934943702995460"/g)?.length,1);
+  assert.doesNotMatch(html,/pagead2\.googlesyndication\.com\/pagead\/js\/adsbygoogle\.js/);
 });
 
 test("로그인 랜딩 푸터에서 모든 공개 정책 페이지로 이동할 수 있다", async () => {

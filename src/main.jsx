@@ -44,6 +44,7 @@ import {
   normalizeProjectIngredientData,
   soldOutReason,
 } from "../worker/menu-availability.js";
+import { PublicContentPage, PUBLIC_CONTENT_PATHS } from "./public-content.jsx";
 
 const seed = {
   store: {
@@ -301,18 +302,20 @@ const api = async (path, options = {}) => {
 
 function Root() {
   const publicShop = location.pathname.startsWith("/shop/");
+  const publicContent = PUBLIC_CONTENT_PATHS.has(location.pathname);
   const [user, setUser] = useState(undefined);
   useEffect(() => {
-    if (publicShop) return;
+    if (publicShop || publicContent) return;
     api("/api/me")
       .then((r) => setUser(r.user))
       .catch(() => setUser(null));
-  }, [publicShop]);
+  }, [publicShop, publicContent]);
   useEffect(() => {
-    if (!publicShop && user === null && location.pathname !== "/login")
+    if (!publicShop && !publicContent && user === null && location.pathname !== "/login")
       history.replaceState({}, "", "/login");
-  }, [user, publicShop]);
+  }, [user, publicShop, publicContent]);
   if (publicShop) return <CustomerPage />;
+  if (publicContent) return <PublicContentPage pathname={location.pathname} />;
   if (user === undefined)
     return (
       <div className="auth-loading">

@@ -56,3 +56,11 @@ test("AdSense 확인 메타 태그와 ads.txt 게시자 ID가 정확하다", asy
   assert.match(html,/<meta name="google-adsense-account" content="ca-pub-4934943702995460"/);
   assert.equal(ads.trim(),"google.com, pub-4934943702995460, DIRECT, f08c47fec0942fa0");
 });
+
+test("로그인 랜딩 푸터에서 모든 공개 정책 페이지로 이동할 수 있다", async () => {
+  const source=await readFile(new URL("../src/main.jsx",import.meta.url),"utf8");
+  const start=source.indexOf('<footer className="landing-footer">');
+  const footer=source.slice(start,source.indexOf('</footer>',start));
+  for(const href of ['/about','/guide','/privacy','/terms','#partnership','#seller-login'])assert.match(footer,new RegExp(`href="${href}"`));
+  assert.match(footer,/aria-label="서비스 정보"/);
+});

@@ -1223,7 +1223,14 @@ function AuthPage({ onAuth }) {
           <b>Studio</b>
         </div>
         <p>메뉴가 주문이 되고, 주문이 매장의 성장이 되는 곳.</p>
-        <a href="#seller-login">SELLER WORKSPACE ↗</a>
+        <nav className="landing-footer-links" aria-label="서비스 정보">
+          <a href="/about">서비스 소개</a>
+          <a href="/guide">이용 안내</a>
+          <a href="/privacy">개인정보 처리방침</a>
+          <a href="/terms">이용 정책</a>
+          <a href="#partnership">문의하기</a>
+          <a className="footer-workspace" href="#seller-login">판매자 시작 ↗</a>
+        </nav>
       </footer>
     </div>
   );

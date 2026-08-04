@@ -1,6 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { api } from "../worker/index.js";
+import { api, orderNumber } from "../worker/index.js";
+
+test("주문번호는 기존 UUID에서도 항상 10자리 숫자로 표시된다", () => {
+  const number = orderNumber("6f44b4b2-32fb-47d7-8f4f-23aa72b59c34");
+  assert.match(number, /^\d{10}$/);
+  assert.equal(orderNumber("6f44b4b2-32fb-47d7-8f4f-23aa72b59c34"), number);
+});
+
+test("판매자는 취소·환불 주문을 영구 삭제할 수 있다", async () => {
+  let deletedWith;
+  const env={DB:{prepare(sql){let args=[];return{bind(...values){args=values;return this;},async first(){if(sql.includes("FROM sessions JOIN users"))return{id:"seller-1",email:"seller@account.geno",name:"판매자",role:"seller"};throw new Error(sql);},async run(){assert.match(sql,/DELETE FROM orders/);deletedWith=args;return{meta:{changes:1}};}};}}};
+  const response=await api(new Request("https://example.com/api/orders/order-1",{method:"DELETE",headers:{cookie:"session=session-1"}}),env,{});
+  assert.equal(response.status,200);
+  assert.deepEqual(deletedWith,["order-1","seller-1"]);
+});
+
+test("진행 중 주문은 삭제할 수 없다", async () => {
+  const env={DB:{prepare(sql){return{bind(){return this;},async first(){if(sql.includes("FROM sessions JOIN users"))return{id:"seller-1",email:"seller@account.geno",name:"판매자",role:"seller"};throw new Error(sql);},async run(){return{meta:{changes:0}};}};}}};
+  const response=await api(new Request("https://example.com/api/orders/order-1",{method:"DELETE",headers:{cookie:"session=session-1"}}),env,{});
+  assert.equal(response.status,409);
+  assert.match((await response.json()).error,/취소 또는 환불/);
+});
 
 test("장바구니에 담은 뒤 재료가 소진되면 주문 API가 메뉴와 재료명을 알려주며 차단한다", async () => {
   const project = {

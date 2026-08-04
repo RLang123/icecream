@@ -250,6 +250,13 @@ const playNotificationSound = (store, contextRef) => {
 };
 const isMenuSoldOut = (item, store) =>
   getMenuAvailability(item, store).soldOut;
+const numericOrderNumber = (order) => {
+  if (/^\d+$/.test(String(order?.number || ""))) return String(order.number);
+  let hash = 2166136261;
+  for (const character of String(order?.id || ""))
+    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  return String(hash >>> 0).padStart(10, "0");
+};
 const kioskText = {
   heroTop: "HAVE A SWEET DAY",
   heroA: "오늘은 어떤",
@@ -2496,6 +2503,16 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
     setPaymentOrder(null);
     setPayment("prepaid");
   };
+  const remove = async (order) => {
+    if (!confirm("이 주문을 영구 삭제할까요? 삭제하면 엑셀에도 포함되지 않습니다.")) return;
+    try {
+      await api(`/api/orders/${order.id}`, { method: "DELETE" });
+      setOrders((list) => list.filter((item) => item.id !== order.id));
+      refreshOrders?.();
+    } catch (e) {
+      alert(e.message);
+    }
+  };
   const exportRows = (department) => {
     const list = orders.filter(
       (o) =>
@@ -2524,7 +2541,7 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
     list.forEach((o) =>
       o.items.forEach((i) =>
         rows.push([
-          o.id.slice(0, 8),
+          numericOrderNumber(o),
           o.department || "",
           o.customer_name,
           i.name,
@@ -2599,7 +2616,7 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
           <article key={o.id} className={o.status === "new" ? "new" : ""}>
             <div>
               <span>
-                #{o.id.slice(0, 4).toUpperCase()} · {labels[o.status]}
+                #{numericOrderNumber(o)} · {labels[o.status]}
               </span>
               <time>
                 {new Date(o.created_at + "Z").toLocaleString("ko-KR")}
@@ -2667,6 +2684,11 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
                   <Check /> 판매완료
                 </button>
               )}
+              {["cancelled", "refunded"].includes(o.status) && (
+                <button className="delete" onClick={() => remove(o)}>
+                  주문 삭제
+                </button>
+              )}
               {(o.status === "completed" || o.status === "done") && (
                 <button
                   className="refund"
@@ -2712,7 +2734,7 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
             <span className="auth-kicker">COMPLETE SALE</span>
             <h2>결제수단을 선택하세요</h2>
             <p>
-              #{paymentOrder.id.slice(0, 4).toUpperCase()} ·{" "}
+              #{numericOrderNumber(paymentOrder)} ·{" "}
               {won(paymentOrder.total)}
             </p>
             <div>
@@ -2843,7 +2865,7 @@ function OrderPanel({ orders, setOrders, data, setData }) {
             <article key={o.id} className={o.status === "new" ? "new" : ""}>
               <div>
                 <span>
-                  #{o.id.slice(0, 4).toUpperCase()} · {statusText[o.status]}
+                  #{numericOrderNumber(o)} · {statusText[o.status]}
                 </span>
                 <time>
                   {new Date(o.created_at + "Z").toLocaleString("ko-KR")}
@@ -3410,7 +3432,7 @@ function ProfileMenu({ user, onLogout, compact = false }) {
                 historyOrders.slice(0, 3).map((o) => (
                   <div key={o.id}>
                     <span>
-                      #{o.id.slice(0, 4).toUpperCase()} · {won(o.total)}
+                      #{numericOrderNumber(o)} · {won(o.total)}
                     </span>
                     <small>
                       {

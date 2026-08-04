@@ -1,0 +1,30 @@
+.menu-row .soldout-reason,
+.product-info .soldout-reason {
+  color: #c84c4c;
+  white-space: normal;
+  font-weight: 700;
+}
+
+.ingredient-list article span input {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-weight: 700;
+  padding: 0;
+  outline: none;
+}
+
+.cart-soldout-warning {
+  display: flex !important;
+  flex-direction: column;
+  gap: 4px;
+  background: #fff0f0;
+  color: #a33;
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.cart-soldout-warning span {
+  font-size: 0.7em;
+}

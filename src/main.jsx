@@ -33,6 +33,12 @@ import "./content.css";
 import "./partnership.css";
 import "./sound.css";
 import "./auth-modal.css";
+import "./availability.css";
+import {
+  getMenuAvailability,
+  normalizeProjectIngredientData,
+  soldOutReason,
+} from "../worker/menu-availability.js";
 
 const seed = {
   store: {
@@ -237,12 +243,7 @@ const playNotificationSound = (store, contextRef) => {
   } catch {}
 };
 const isMenuSoldOut = (item, store) =>
-  !!item.soldout ||
-  (item.ingredientIds || []).some(
-    (id) =>
-      (store.ingredients || []).find((ingredient) => ingredient.id === id)
-        ?.available === false,
-  );
+  getMenuAvailability(item, store).soldOut;
 const kioskText = {
   heroTop: "HAVE A SWEET DAY",
   heroA: "오늘은 어떤",
@@ -1195,9 +1196,21 @@ function CustomerPage() {
       return;
     }
     setError("");
-    api(`/api/store/${encodeURIComponent(slug)}`)
-      .then((r) => setData(r.data))
-      .catch((e) => setError(e.message));
+    let active = true;
+    const load = () =>
+      api(`/api/store/${encodeURIComponent(slug)}`)
+        .then((r) => {
+          if (active) setData(normalizeProjectIngredientData(r.data));
+        })
+        .catch((e) => {
+          if (active) setError(e.message);
+        });
+    load();
+    const timer = setInterval(load, 10000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [slug]);
   if (!data)
     return (
@@ -1251,7 +1264,7 @@ function Studio({ user, onLogout }) {
   useEffect(() => {
     api("/api/project")
       .then((r) => {
-        if (r.data) setData(r.data);
+        if (r.data) setData(normalizeProjectIngredientData(r.data));
         setStoreSlug(r.slug);
         loaded.current = true;
       })
@@ -1431,7 +1444,7 @@ function Studio({ user, onLogout }) {
     const r = new FileReader();
     r.onload = () => {
       try {
-        setData(JSON.parse(r.result));
+        setData(normalizeProjectIngredientData(JSON.parse(r.result)));
       } catch {
         alert("올바른 프로젝트 파일이 아닙니다.");
       }
@@ -1725,7 +1738,9 @@ function Panel({
         </div>
         <div className="menu-list">
           {data.items.length ? (
-            data.items.map((item) => (
+            data.items.map((item) => {
+              const availability = getMenuAvailability(item, data.store);
+              return (
               <div
                 className="menu-row"
                 key={item.id}
@@ -1737,6 +1752,11 @@ function Panel({
                   <small>
                     {won(item.price)} · {item.category}
                   </small>
+                  {availability.soldOut && (
+                    <small className="soldout-reason">
+                      {soldOutReason(availability)}
+                    </small>
+                  )}
                 </div>
                 <button
                   onClick={(e) => {
@@ -1748,16 +1768,17 @@ function Panel({
                       ),
                     }));
                   }}
-                  className={isMenuSoldOut(item, data.store) ? "soldout" : ""}
+                  className={availability.soldOut ? "soldout" : ""}
                 >
                   {item.soldout
                     ? "수동 품절"
-                    : isMenuSoldOut(item, data.store)
+                    : availability.soldOut
                       ? "재료 소진"
                       : "판매중"}
                 </button>
               </div>
-            ))
+              );
+            })
           ) : (
             <div className="empty-card">
               <Coffee />
@@ -2203,14 +2224,18 @@ function SettingsPanel({ data, setData, updateStore }) {
 function IngredientPanel({ data, setData }) {
   const [name, setName] = useState("");
   const ingredients = data.store.ingredients || [];
-  const update = (next) =>
-    setData((d) => ({ ...d, store: { ...d.store, ingredients: next } }));
+  const update = (change) =>
+    setData((d) => {
+      const current = d.store.ingredients || [];
+      const next = typeof change === "function" ? change(current) : change;
+      return { ...d, store: { ...d.store, ingredients: next } };
+    });
   const add = () => {
     const value = name.trim();
     if (!value) return;
-    update([
-      ...ingredients,
-      { id: `ingredient-${Date.now()}`, name: value, available: true },
+    update((current) => [
+      ...current,
+      { id: `ingredient-${crypto.randomUUID()}`, name: value, available: true },
     ]);
     setName("");
   };
@@ -2220,9 +2245,12 @@ function IngredientPanel({ data, setData }) {
       !confirm("이 재료를 사용하는 메뉴가 있습니다. 그래도 삭제할까요?")
     )
       return;
-    update(ingredients.filter((x) => x.id !== id));
     setData((d) => ({
       ...d,
+      store: {
+        ...d.store,
+        ingredients: (d.store.ingredients || []).filter((x) => x.id !== id),
+      },
       items: d.items.map((i) => ({
         ...i,
         ingredientIds: (i.ingredientIds || []).filter((x) => x !== id),
@@ -2253,8 +2281,8 @@ function IngredientPanel({ data, setData }) {
             <button
               className="stock-toggle"
               onClick={() =>
-                update(
-                  ingredients.map((x) =>
+                update((current) =>
+                  current.map((x) =>
                     x.id === ingredient.id
                       ? { ...x, available: !x.available }
                       : x,
@@ -2264,7 +2292,22 @@ function IngredientPanel({ data, setData }) {
             >
               <i>{ingredient.available && <Check />}</i>
               <span>
-                <b>{ingredient.name}</b>
+                <input
+                  aria-label="재료 이름"
+                  value={ingredient.name}
+                  maxLength="80"
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    update((current) =>
+                      current.map((item) =>
+                        item.id === ingredient.id
+                          ? { ...item, name: value }
+                          : item,
+                      ),
+                    );
+                  }}
+                />
                 <small>
                   {ingredient.available ? "재고 있음" : "소진 · 연결 메뉴 품절"}
                 </small>
@@ -3405,6 +3448,11 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
     [data.items, category, query],
   );
   const total = cart.reduce((s, x) => s + x.price * x.qty, 0);
+  const unavailableCartItems = cart.flatMap((line) => {
+    const item = data.items.find((candidate) => candidate.id === line.id);
+    const availability = getMenuAvailability(item, data.store);
+    return availability.soldOut ? [{ line, availability }] : [];
+  });
   const add = (item, options) => {
     const cartId = `${item.id}-${options.temperature}-${options.size}-${options.shots}`;
     setCart((c) => {
@@ -3451,6 +3499,13 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
     return () => clearInterval(timer);
   }, [screen, embedded]);
   const pay = async () => {
+    if (unavailableCartItems.length) {
+      const blocked = unavailableCartItems[0];
+      alert(
+        `${blocked.line.name} 메뉴는 주문할 수 없습니다. ${soldOutReason(blocked.availability)}`,
+      );
+      return;
+    }
     if ((data.store.departments || []).length && !department) {
       alert("부서를 선택해 주세요.");
       return;
@@ -3570,13 +3625,14 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
             </label>
           </div>
           <section className="product-grid">
-            {visible.map((item) => (
+            {visible.map((item) => {
+              const availability = getMenuAvailability(item, data.store);
+              return (
               <button
-                className={`product ${isMenuSoldOut(item, data.store) ? "is-soldout" : ""}`}
+                className={`product ${availability.soldOut ? "is-soldout" : ""}`}
                 key={item.id}
-                onClick={() =>
-                  !isMenuSoldOut(item, data.store) && setSelected(item)
-                }
+                disabled={availability.soldOut}
+                onClick={() => !availability.soldOut && setSelected(item)}
               >
                 <div
                   className="product-image"
@@ -3588,7 +3644,7 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
                     <span>{item.emoji}</span>
                   )}
                   {item.badge && <b>{item.badge}</b>}
-                  {isMenuSoldOut(item, data.store) && <i>{t.soldout}</i>}
+                  {availability.soldOut && <i>{t.soldout}</i>}
                 </div>
                 <div className="product-info">
                   <small>
@@ -3603,10 +3659,16 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
                   </small>
                   <h3>{item.name}</h3>
                   <p>{item.desc}</p>
+                  {availability.soldOut && (
+                    <p className="soldout-reason">
+                      {soldOutReason(availability)}
+                    </p>
+                  )}
                   <strong>{won(item.largePrice ?? item.price)}</strong>
                 </div>
               </button>
-            ))}
+              );
+            })}
           </section>
           <div className="kiosk-footer">
             <div>
@@ -3648,6 +3710,7 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
           department={department}
           setDepartment={setDepartment}
           t={t}
+          unavailableCartItems={unavailableCartItems}
         />
       )}{" "}
       {selected && (
@@ -3825,6 +3888,7 @@ function CartScreen({
   department,
   setDepartment,
   t,
+  unavailableCartItems,
 }) {
   return (
     <div className="cart-screen">
@@ -3920,7 +3984,20 @@ function CartScreen({
             <span>{t.total}</span>
             <b>{won(total)}</b>
           </div>
-          <button onClick={pay} disabled={paying}>
+          {unavailableCartItems.length > 0 && (
+            <div className="cart-soldout-warning">
+              <b>주문할 수 없는 메뉴가 있습니다.</b>
+              {unavailableCartItems.map(({ line, availability }) => (
+                <span key={line.cartId}>
+                  {line.name} · {soldOutReason(availability)}
+                </span>
+              ))}
+            </div>
+          )}
+          <button
+            onClick={pay}
+            disabled={paying || unavailableCartItems.length > 0}
+          >
             {paying ? (
               t.sending
             ) : (

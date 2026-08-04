@@ -35,6 +35,11 @@ import "./sound.css";
 import "./auth-modal.css";
 import "./availability.css";
 import {
+  orderListChange,
+  orderPollDelay,
+  shouldStartOrderPoll,
+} from "./order-polling.js";
+import {
   getMenuAvailability,
   normalizeProjectIngredientData,
   soldOutReason,
@@ -1295,6 +1300,7 @@ function Studio({ user, onLogout }) {
   const audioRef = useRef(null);
   const dataRef = useRef(data);
   const sectionRef = useRef(section);
+  const refreshOrdersRef = useRef(() => {});
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
@@ -1342,6 +1348,10 @@ function Studio({ user, onLogout }) {
     let leader = false;
     let lastNewAt = 0;
     let failures = 0;
+    let inFlight = false;
+    let refreshPending = false;
+    let stopped = false;
+    let ordersSignature = "";
     const ring = () => playNotificationSound(dataRef.current.store, audioRef);
     const accept = (list) => {
       const newest = list[0];
@@ -1360,7 +1370,10 @@ function Studio({ user, onLogout }) {
       }
       latestOrderId.current = newest?.id || null;
       ordersInitialized.current = true;
-      setOrders(list);
+      const change = orderListChange(ordersSignature, list);
+      ordersSignature = change.signature;
+      if (change.changed) setOrders(list);
+      return change.changed;
     };
     const claim = () => {
       try {
@@ -1380,23 +1393,21 @@ function Studio({ user, onLogout }) {
       leader = false;
       return false;
     };
-    const delay = () => {
-      if (failures) return Math.min(120000, 5000 * 2 ** Math.min(failures, 5));
-      return document.hidden
-        ? 60000
-        : sectionRef.current === "orders" || Date.now() - lastNewAt < 60000
-          ? 4000
-          : Date.now() - lastNewAt < 300000
-            ? 10000
-            : 20000;
-    };
+    const delay = () => orderPollDelay({
+      failures,
+      section: sectionRef.current,
+      lastNewAt,
+    });
     const tick = async () => {
+      if (stopped || !shouldStartOrderPoll({ hidden: document.hidden, inFlight })) return;
+      inFlight = true;
+      refreshPending = false;
       if (claim()) {
         try {
           const result = await api("/api/orders");
           failures = 0;
-          accept(result.orders);
-          channel?.postMessage({ type: "orders", orders: result.orders });
+          if (accept(result.orders))
+            channel?.postMessage({ type: "orders", orders: result.orders });
         } catch (error) {
           failures += 1;
           if (error.retryAfter)
@@ -1406,8 +1417,16 @@ function Studio({ user, onLogout }) {
             );
         }
       }
-      timer = setTimeout(tick, leader ? delay() : 5000);
+      inFlight = false;
+      if (!stopped && !document.hidden)
+        timer = setTimeout(tick, refreshPending ? 0 : leader ? delay() : 5000);
     };
+    const requestImmediate = () => {
+      refreshPending = true;
+      clearTimeout(timer);
+      if (!document.hidden && !inFlight) timer = setTimeout(tick, 0);
+    };
+    refreshOrdersRef.current = requestImmediate;
     channel &&
       (channel.onmessage = (event) => {
         if (event.data?.type === "orders" && Array.isArray(event.data.orders))
@@ -1431,11 +1450,13 @@ function Studio({ user, onLogout }) {
           if (current?.id === tabId) localStorage.removeItem(lockKey);
         } catch {}
       }
-      timer = setTimeout(tick, document.hidden ? 60000 : 0);
+      if (!document.hidden) requestImmediate();
     };
     document.addEventListener("visibilitychange", visibility);
     tick();
     return () => {
+      stopped = true;
+      refreshOrdersRef.current = () => {};
       clearTimeout(timer);
       clearInterval(heartbeat);
       document.removeEventListener("visibilitychange", visibility);
@@ -1613,6 +1634,7 @@ function Studio({ user, onLogout }) {
           updateStore={updateStore}
           orders={orders}
           setOrders={setOrders}
+          refreshOrders={() => refreshOrdersRef.current()}
         />
         <section className="preview-area">
           <div className="preview-toolbar">
@@ -1677,6 +1699,7 @@ function Panel({
   updateStore,
   orders = [],
   setOrders,
+  refreshOrders,
 }) {
   const [editId, setEditId] = useState(null);
   const [newCategory, setNewCategory] = useState("");
@@ -1857,6 +1880,7 @@ function Panel({
         setOrders={setOrders}
         data={data}
         setData={setData}
+        refreshOrders={refreshOrders}
       />
     );
   if (section === "ingredients")
@@ -2409,7 +2433,7 @@ function MenuPicker({ items, store, onClose, onSelect }) {
     </div>
   );
 }
-function OperationsPanel({ orders, setOrders, data, setData }) {
+function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
   const [paymentOrder, setPaymentOrder] = useState(null);
   const [payment, setPayment] = useState("prepaid");
   const [editId, setEditId] = useState(null);
@@ -2452,6 +2476,7 @@ function OperationsPanel({ orders, setOrders, data, setData }) {
             : o,
         ),
       );
+      refreshOrders?.();
     } catch (e) {
       alert(e.message);
     }

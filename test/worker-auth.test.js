@@ -18,6 +18,7 @@ test("회원가입 해시로 로그인할 수 있다", async () => {
   const env={DB:{prepare(sql){return{bind(){return this;},async first(){if(sql.startsWith("SELECT * FROM users"))return{id:"u",email:"seller@account.geno",name:"seller",role:"seller",password_hash:secured.hash,password_salt:secured.salt};throw new Error(sql);},async run(){if(sql.startsWith("DELETE FROM sessions")||sql.startsWith("INSERT INTO sessions"))return{meta:{changes:1}};throw new Error(sql);}};}}};
   const response=await api(new Request("https://example.com/api/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({accountName:"seller",password:"correct-password"})}),env,{waitUntil(){}});
   assert.equal(response.status,200);
+  assert.equal(response.headers.get("cache-control"),"no-store");
   assert.match(response.headers.get("set-cookie"),/HttpOnly; Secure; SameSite=Lax/);
 });
 
@@ -26,6 +27,7 @@ test("실제 회원가입 해시를 같은 설정으로 로그인하고 잘못�
   const env={DB:{prepare(sql){const statement={sql,args:[],bind(...args){this.args=args;return this;},async first(){if(sql==='SELECT id FROM users WHERE email=?')return user?{id:user.id}:null;if(sql.startsWith('SELECT * FROM users'))return user;throw new Error(sql);},async run(){if(sql.startsWith('DELETE FROM sessions')||sql.startsWith('INSERT INTO sessions'))return{meta:{changes:1}};throw new Error(sql);}};return statement;},async batch(statements){const values=statements[0].args;user={id:values[0],email:values[1],name:values[2],role:values[3],password_hash:values[4],password_salt:values[5]};return statements.map(()=>({meta:{changes:1}}));}}};
   const register=await api(new Request('https://example.com/api/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountName:'new-seller',password:'correct-password'})}),env,{waitUntil(){}});
   assert.equal(register.status,201);
+  assert.equal(register.headers.get('cache-control'),'no-store');
   const login=await api(new Request('https://example.com/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountName:'new-seller',password:'correct-password'})}),env,{waitUntil(){}});
   assert.equal(login.status,200);
   const wrong=await api(new Request('https://example.com/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountName:'new-seller',password:'wrong-password'})}),env,{waitUntil(){}});
@@ -36,14 +38,37 @@ test("만료 세션은 인증되지 않는다", async () => {
   const env={DB:{prepare(sql){return{bind(){return this;},async first(){assert.match(sql,/expires_at > datetime/);return null;}};}}};
   const response=await api(new Request("https://example.com/api/me",{headers:{cookie:"session=expired"}}),env,{waitUntil(){}});
   assert.equal(response.status,401);
+  assert.equal(response.headers.get('cache-control'),'no-store');
 });
 
 test("D1 미연결 health는 503이고 연결되면 최소 정보만 반환한다", async () => {
   const missing=await worker.fetch(new Request('https://example.com/api/health'),{},{});
   assert.equal(missing.status,503);
+  assert.equal(missing.headers.get('cache-control'),'no-store');
   assert.equal((await missing.json()).code,'DB_BINDING_MISSING');
   const connected=await api(new Request('https://example.com/api/health'),{DB:{prepare(sql){assert.equal(sql,'SELECT 1 AS ok');return{async first(){return{ok:1};}};}}},{});
   const result=await connected.json();assert.equal(connected.status,200);assert.deepEqual(result,{ok:true,database:'ready',turnstile:'optional'});
+  assert.equal(connected.headers.get('cache-control'),'no-store');
+});
+
+test("존재하지 않는 API는 인증 여부와 관계없이 404이고 보호 API는 401이다", async () => {
+  const env={DB:{prepare(){throw new Error('unknown route must not query DB');}}};
+  const missing=await api(new Request('https://example.com/api/not-a-route'),env,{});
+  assert.equal(missing.status,404);
+  assert.equal(missing.headers.get('cache-control'),'no-store');
+  const protectedResponse=await api(new Request('https://example.com/api/project'),env,{});
+  assert.equal(protectedResponse.status,401);
+  assert.equal(protectedResponse.headers.get('cache-control'),'no-store');
+});
+
+test("로그아웃은 쿠키와 서버 세션을 지우고 no-store를 반환한다", async () => {
+  const queries=[];
+  const env={DB:{prepare(sql){queries.push(sql);return{bind(){return this;},async run(){return{meta:{changes:1}};}};}}};
+  const response=await api(new Request('https://example.com/api/logout',{method:'POST',headers:{cookie:'session=local-session'}}),env,{});
+  assert.equal(response.status,200);
+  assert.equal(response.headers.get('cache-control'),'no-store');
+  assert.match(response.headers.get('set-cookie'),/Max-Age=0/);
+  assert.ok(queries.some(sql=>sql.startsWith('DELETE FROM sessions WHERE id=')));
 });
 
 test("Turnstile 필수 모드는 action과 hostname을 서버에서 검증한다", async () => {

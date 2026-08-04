@@ -51,6 +51,7 @@ test("장바구니에 담은 뒤 재료가 소진되면 주문 API가 메뉴와 
   const response = await api(request, env, { waitUntil() {} });
   const result = await response.json();
   assert.equal(response.status, 409);
+  assert.equal(response.headers.get('cache-control'),'no-store');
   assert.match(result.error, /A 메뉴/);
   assert.match(result.error, /재료 A/);
 });
@@ -69,6 +70,7 @@ test("서버가 클라이언트 가격을 무시하고 최신 메뉴 가격으�
   const response = await api(new Request("https://example.com/api/orders", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({storeSlug:"store-test1234",items:[{id:"menu-1",qty:2,temperature:"ICE",size:"S",price:1}],requestKey:"price-recalc-123456"}) }), env, {waitUntil(){}});
   const result = await response.json();
   assert.equal(response.status,201);
+  assert.equal(response.headers.get('cache-control'),'no-store');
   assert.equal(result.total,14000);
   assert.equal(inserted[5],14000);
 });

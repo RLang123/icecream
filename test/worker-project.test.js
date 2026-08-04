@@ -80,5 +80,5 @@ test("프로젝트 변경 후 공개 매장 API가 최신 데이터를 반환한
   const request=()=>new Request('https://example.com/api/store/store-refresh1');
   assert.equal((await (await api(request(),env,{})).json()).data.items[0].name,'이전 메뉴');
   name='최신 메뉴';
-  const response=await api(request(),env,{});assert.equal(response.headers.get('cache-control'),'no-store');assert.equal((await response.json()).data.items[0].name,'최신 메뉴');
+  const response=await api(request(),env,{});assert.equal(response.headers.get('cache-control'),'public, max-age=5, s-maxage=5, must-revalidate');assert.equal((await response.json()).data.items[0].name,'최신 메뉴');
 });

@@ -21,7 +21,7 @@ function bytesToHex(bytes) { return [...new Uint8Array(bytes)].map(b => b.toStri
 function hexToBytes(hex) { return new Uint8Array(hex.match(/.{2}/g).map(b => parseInt(b, 16))); }
 async function passwordHash(password, salt = crypto.getRandomValues(new Uint8Array(16))) {
   const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 120000, hash: 'SHA-256' }, key, 256);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, key, 256);
   return { hash: bytesToHex(bits), salt: bytesToHex(salt) };
 }
 function cookies(request) { return Object.fromEntries((request.headers.get('cookie') || '').split(';').map(v => v.trim().split('=').map(decodeURIComponent)).filter(v => v.length === 2)); }

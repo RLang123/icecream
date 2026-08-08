@@ -22,13 +22,13 @@ npm run dev:full
 
 ### 원격 마이그레이션 안전장치
 
-`npm run db:remote`는 기본적으로 실패합니다. Cloudflare 대시보드에서 대상 계정과 `geno-studio-db`를 확인한 운영자만 다음처럼 명시적으로 승인할 수 있습니다.
+`npm run db:remote`는 기본적으로 실패합니다. Cloudflare 대시보드에서 대상 계정과 `geno-studio-db`를 확인한 운영자만 다음처럼 명시적으로 승인할 수 있습니다. 현재 운영 DB는 과거 스키마가 적용되어 있지만 Wrangler 마이그레이션 추적 기록이 없어 `migrations apply`가 0001부터 전부 미적용으로 오인합니다. 따라서 이 스크립트는 승인된 `migrations/0007_sessions_expiry_index.sql` 하나만 `d1 execute --file`로 실행하도록 고정되어 있습니다.
 
 ```bash
 CONFIRM_REMOTE_D1=geno-studio-db npm run db:remote
 ```
 
-이 명령은 DB를 만들지 않지만 저장소의 미적용 마이그레이션을 운영 DB에 적용합니다. 실행 전 D1 Time Travel/백업 가능 여부와 `wrangler d1 migrations list geno-studio-db --remote` 결과를 확인하세요. 기존 마이그레이션에는 과거 스키마 변환 SQL이 있으므로 새 DB나 대상이 불명확한 DB에 실행하지 마세요.
+이 명령은 DB를 만들거나 과거 마이그레이션을 실행하지 않고 0007의 세션 만료 인덱스만 생성합니다. `wrangler d1 migrations apply geno-studio-db --remote`는 기존 마이그레이션의 `DROP TABLE`과 `ALTER TABLE`까지 실행하려 할 수 있으므로 사용하지 마세요. 직접 실행 방식은 Wrangler의 마이그레이션 추적 상태를 갱신하지 않는다는 점을 운영 기록에 남겨야 합니다.
 
 ## 주문 보관과 자정 정리 상태
 
@@ -39,7 +39,7 @@ CONFIRM_REMOTE_D1=geno-studio-db npm run db:remote
 - 공개 매장 API는 최신성과 읽기 절감을 위해 5초 공개 캐시를 사용하며 주문 API는 항상 최신 D1 데이터를 다시 확인합니다.
 - 주문 API는 제출 시 최신 D1 프로젝트를 다시 읽어 가격, 온도, 사이즈, 샷, 재료 품절을 재검증합니다.
 - 비밀번호는 PBKDF2-SHA-256, 100,000회, 256비트이며 기존 사용자 해시 형식을 유지합니다.
-- 로그인 성공 시 만료 세션을 정리하고, 쿠키는 `HttpOnly; Secure; SameSite=Lax`입니다.
+- 회원가입·로그인 성공 직전에 `expires_at`이 지난 세션만 오래된 순서로 최대 100건 정리합니다. 로그아웃은 해당 세션 ID 하나를 즉시 삭제합니다. 쿠키는 `HttpOnly; Secure; SameSite=Lax`입니다.
 - 메모리 기반 요청 제한은 Worker 인스턴스 간 공유되지 않는 보조 장치일 뿐입니다. 운영 방어에는 Turnstile, WAF Rate Limiting 또는 공유 상태 저장소를 별도로 검토해야 합니다.
 
 ## 무료 Turnstile 활성화
@@ -61,6 +61,14 @@ CONFIRM_REMOTE_D1=geno-studio-db npm run db:remote
 
 `GET /api/health`는 D1에 `SELECT 1`만 실행합니다. 정상은 `200 { ok: true }`, DB 미연결·응답 실패는 503이며 사용자 데이터와 테이블 구조를 반환하지 않습니다. 외부 무료 모니터링 서비스는 추가하지 않았으므로 배포 직후와 장애 신고 시 직접 확인하세요.
 
+관리자 운영 점검은 Cloudflare 계정 권한이 있는 터미널에서만 다음 읽기 전용 명령으로 수행합니다. SQL은 주요 테이블의 행 개수만 반환하며 비밀번호 해시, 세션 ID, 복구 코드나 주문·결제 상세를 출력하지 않습니다. 원격 조회도 D1 무료 사용량을 소비하므로 이상 징후가 있을 때만 실행하세요.
+
+```bash
+npx wrangler d1 execute geno-studio-db --remote --file=ops/table-counts.sql
+```
+
+저장공간 증가는 D1 대시보드의 Metrics에서 storage와 rows written을 먼저 확인하고, 위 결과를 이전 점검 기록과 비교해 `sessions`, `orders`, `payment_attempts` 증가폭을 확인합니다. `payment_attempts`는 성공·거절 결제 감사 기록으로 사용 중이고 법적·정산 보관 기준이 확정되지 않았으므로 자동 삭제하지 않습니다.
+
 ## 무료 WAF 속도 제한
 
 Cloudflare Free zone은 Rate Limiting 규칙 1개를 제공할 수 있습니다. 자체 도메인이 Cloudflare zone에 연결된 경우 Security → WAF → Rate limiting rules에서 경로 `/api/login`을 우선 보호하는 것을 권장합니다. 로그인은 기존 계정 탈취 시도가 반복되는 표면이기 때문입니다. Free 규칙은 경로 기준과 IP 집계 등 제한된 조건만 지원하므로 대시보드에서 제공되는 값 안에서 10초 단위의 완화된 Managed Challenge로 시작하고 정상 사용자를 관찰하세요. `*.pages.dev`는 사용자가 소유한 zone이 아니므로 해당 Pages 기본 도메인에 zone WAF 규칙을 임의 적용할 수 없습니다. 코드의 메모리 제한은 여러 Worker 인스턴스에 공유되지 않는 보조 장치입니다.
@@ -79,7 +87,7 @@ Cloudflare 대시보드에서 Workers & Pages → 프로젝트 → Metrics의 �
 
 - Workers Free: 하루 100,000 요청. 초과 시 추가 과금 대신 요청이 실패할 수 있습니다.
 - D1 Free: 하루 5백만 rows read, 10만 rows written, DB당 500MB, 계정 전체 5GB. 초과 시 쿼리나 쓰기가 다음 UTC 초기화까지 실패할 수 있습니다.
-- 주문 목록은 판매자별 인덱스를 사용해 최근 150건만 조회합니다. 현재 화면에는 다음 페이지 기능이 없으므로 장기 주문 열람이 필요하면 cursor 페이지네이션을 후속 구현해야 합니다.
+- 주문 목록 API는 `page`와 `limit`을 받으며 기본 50건, 최대 100건만 판매자 또는 고객 소유권 범위에서 조회합니다. 큰 페이지 번호의 OFFSET 비용이 커지면 cursor 페이지네이션으로 전환해야 합니다.
 - 공개 매장 API는 최대 5초만 캐시합니다. 판매자 주문 화면은 활성 상태에서 10~30초 간격으로 조회하고 숨긴 탭에서는 중단하며, 주문 API는 항상 최신 D1 데이터를 재검증합니다.
 - 프로젝트 JSON은 D1 단일 행 제한보다 여유 있게 1.8MB로 제한합니다.
 

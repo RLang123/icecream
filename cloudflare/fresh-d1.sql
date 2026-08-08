@@ -39,6 +39,8 @@ CREATE TABLE IF NOT EXISTS orders (
   refunded_at TEXT,
   refund_reason TEXT,
   request_key TEXT,
+  details_cleaned_at TEXT,
+  display_order_number INTEGER CHECK (display_order_number IS NULL OR display_order_number BETWEEN 1 AND 100),
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -53,7 +55,28 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at_id ON sessions(expires_at, id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug);
 CREATE INDEX IF NOT EXISTS idx_orders_seller_created ON orders(seller_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_seller_request_key ON orders(seller_id, request_key) WHERE request_key IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_seller_active_display_number ON orders(seller_id, display_order_number) WHERE status IN ('new', 'preparing') AND display_order_number IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_order ON payment_attempts(order_id, attempted_at DESC);
+
+CREATE TABLE IF NOT EXISTS daily_closures (
+  id TEXT PRIMARY KEY,
+  seller_id TEXT NOT NULL REFERENCES users(id),
+  business_date TEXT NOT NULL,
+  total_order_count INTEGER NOT NULL,
+  completed_order_count INTEGER NOT NULL,
+  cancelled_order_count INTEGER NOT NULL,
+  total_revenue INTEGER NOT NULL,
+  total_order_amount INTEGER NOT NULL DEFAULT 0,
+  cancelled_amount INTEGER NOT NULL DEFAULT 0,
+  refunded_amount INTEGER NOT NULL DEFAULT 0,
+  net_revenue INTEGER NOT NULL DEFAULT 0,
+  closed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  cleaned_order_count INTEGER NOT NULL,
+  request_key TEXT NOT NULL,
+  UNIQUE (seller_id, business_date),
+  UNIQUE (seller_id, request_key)
+);

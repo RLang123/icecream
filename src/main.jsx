@@ -34,11 +34,16 @@ import "./partnership.css";
 import "./sound.css";
 import "./auth-modal.css";
 import "./availability.css";
+import "./business-close.css";
 import {
   orderListChange,
   orderPollDelay,
   shouldStartOrderPoll,
 } from "./order-polling.js";
+import {
+  BUSINESS_CLOSE_COUNTDOWN_SECONDS,
+  canConfirmBusinessClose,
+} from "./business-close.js";
 import {
   getMenuAvailability,
   normalizeProjectIngredientData,
@@ -251,11 +256,10 @@ const playNotificationSound = (store, contextRef) => {
 const isMenuSoldOut = (item, store) =>
   getMenuAvailability(item, store).soldOut;
 const numericOrderNumber = (order) => {
-  if (/^\d+$/.test(String(order?.number || ""))) return String(order.number);
-  let hash = 2166136261;
-  for (const character of String(order?.id || ""))
-    hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
-  return String(hash >>> 0).padStart(10, "0");
+  const number = Number(order?.display_order_number ?? order?.number);
+  return Number.isInteger(number) && number >= 1 && number <= 100
+    ? String(number)
+    : "-";
 };
 const kioskText = {
   heroTop: "HAVE A SWEET DAY",
@@ -1382,7 +1386,7 @@ function Studio({ user, onLogout }) {
         ring();
         if ("Notification" in window && Notification.permission === "granted")
           new Notification("새 주문이 도착했어요", {
-            body: `${newest.customer_name}님의 주문을 확인해 주세요.`,
+            body: `#${numericOrderNumber(newest)} · ${newest.customer_name}님의 주문을 확인해 주세요.`,
           });
       }
       latestOrderId.current = newest?.id || null;
@@ -2456,6 +2460,45 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
   const [editId, setEditId] = useState(null);
   const [picker, setPicker] = useState(false);
   const [filter, setFilter] = useState("waiting");
+  const [closure, setClosure] = useState(null);
+  const [activeOrderCount, setActiveOrderCount] = useState(null);
+  const [closureInconsistent, setClosureInconsistent] = useState(false);
+  const [closeModal, setCloseModal] = useState(false);
+  const [closeCountdown, setCloseCountdown] = useState(
+    BUSINESS_CLOSE_COUNTDOWN_SECONDS,
+  );
+  const [closeBusy, setCloseBusy] = useState(false);
+  const [closeError, setCloseError] = useState("");
+  const refreshClosure = async () => {
+    const result = await api("/api/business-close");
+    setClosure(result.closure);
+    setActiveOrderCount(result.activeOrderCount);
+    setClosureInconsistent(result.inconsistent);
+    return result;
+  };
+  useEffect(() => {
+    let active = true;
+    api("/api/business-close")
+      .then((result) => {
+        if (!active) return;
+        setClosure(result.closure);
+        setActiveOrderCount(result.activeOrderCount);
+        setClosureInconsistent(result.inconsistent);
+      })
+      .catch(() => active && setActiveOrderCount(null));
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!closeModal) return;
+    setCloseCountdown(BUSINESS_CLOSE_COUNTDOWN_SECONDS);
+    const timer = setInterval(
+      () => setCloseCountdown((value) => Math.max(0, value - 1)),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, [closeModal]);
   const labels = {
     new: "대기",
     preparing: "준비 중",
@@ -2493,7 +2536,8 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
             : o,
         ),
       );
-      refreshOrders?.();
+      await refreshOrders?.();
+      await refreshClosure().catch(() => {});
     } catch (e) {
       alert(e.message);
     }
@@ -2511,6 +2555,31 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
       refreshOrders?.();
     } catch (e) {
       alert(e.message);
+    }
+  };
+  const closeBusiness = async () => {
+    if (
+      activeOrderCount !== 0 ||
+      !canConfirmBusinessClose(closeCountdown, closeBusy)
+    )
+      return;
+    setCloseBusy(true);
+    setCloseError("");
+    try {
+      const result = await api("/api/business-close", {
+        method: "POST",
+        body: JSON.stringify({ requestKey: crypto.randomUUID() }),
+      });
+      setClosure(result.closure);
+      setActiveOrderCount(0);
+      setClosureInconsistent(false);
+      setCloseModal(false);
+      await refreshOrders?.();
+    } catch (error) {
+      setCloseError(error.message);
+      await refreshClosure().catch(() => {});
+    } finally {
+      setCloseBusy(false);
     }
   };
   const exportRows = (department) => {
@@ -2728,6 +2797,93 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
           </div>
         )}
       </div>
+      <section className="business-close-card">
+        <span>DAILY CLOSE</span>
+        <h3>
+          {closureInconsistent
+            ? "마감 상태 확인 필요"
+            : closure
+              ? "오늘 영업 종료됨"
+              : "오늘 영업 종료"}
+        </h3>
+        {closureInconsistent ? (
+          <div className="business-close-warning">
+            마감 기록이 있지만 진행 중인 주문 {activeOrderCount}건이 남아
+            있습니다. 주문 처리는 계속할 수 있으니 먼저 완료하거나 취소해
+            주세요. 고객정보와 상세내용을 추가로 정리하지 않습니다.
+          </div>
+        ) : closure ? (
+          <>
+            <p>
+              오늘 영업이 종료되었습니다. 고객정보와 주문 상세가 안전하게
+              정리되었으며 정산 기록은 보존되었습니다.
+            </p>
+            <dl>
+              <div>
+                <dt>정리된 주문 상세 수</dt>
+                <dd>{closure.cleaned_order_count}건</dd>
+              </div>
+              <div>
+                <dt>영업 종료 시각</dt>
+                <dd>{new Date(`${closure.closed_at}Z`).toLocaleString("ko-KR")}</dd>
+              </div>
+            </dl>
+          </>
+        ) : (
+          <>
+            <p>
+              {activeOrderCount === null
+                ? "진행 중인 주문을 확인하고 있습니다."
+                : activeOrderCount > 0
+                  ? `진행 중인 주문 ${activeOrderCount}건을 먼저 완료하거나 취소해 주세요.`
+                  : "모든 주문 처리를 확인했습니다. 오늘 주문의 개인정보를 정리할 수 있습니다."}
+            </p>
+            <button
+              className="business-close-open"
+              disabled={activeOrderCount !== 0}
+              onClick={() => activeOrderCount === 0 && setCloseModal(true)}
+            >
+              오늘 영업 종료
+            </button>
+          </>
+        )}
+      </section>
+      {closeModal && (
+        <div className="modal-backdrop" onClick={() => !closeBusy && setCloseModal(false)}>
+          <div className="business-close-modal" onClick={(event) => event.stopPropagation()}>
+            <span className="auth-kicker">DAILY CLOSE</span>
+            <h2>오늘 영업을 종료할까요?</h2>
+            <p>
+              오늘 영업을 종료하면 새로운 주문 접수가 중지되고 오늘 주문의
+              고객정보와 상세내용이 비식별 정리됩니다. 주문 번호, 금액, 상태와
+              결제·환불·정산 기록은 보존됩니다. 정리된 상세정보는 화면에서
+              복구할 수 없습니다.
+            </p>
+            {closeError && <div className="business-close-error">{closeError}</div>}
+            <button
+              className="business-close-confirm"
+              disabled={
+                activeOrderCount !== 0 ||
+                !canConfirmBusinessClose(closeCountdown, closeBusy)
+              }
+              onClick={closeBusiness}
+            >
+              {closeBusy
+                ? "처리 중..."
+                : closeCountdown > 0
+                  ? `${closeCountdown}초 후 실행 가능`
+                  : "영업 종료 및 주문 상세 정리"}
+            </button>
+            <button
+              className="modal-cancel"
+              disabled={closeBusy}
+              onClick={() => setCloseModal(false)}
+            >
+              취소
+            </button>
+          </div>
+        </div>
+      )}
       {paymentOrder && (
         <div className="modal-backdrop" onClick={() => setPaymentOrder(null)}>
           <div className="payment-modal" onClick={(e) => e.stopPropagation()}>
@@ -3519,7 +3675,7 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
   const [selected, setSelected] = useState(null);
   const [cart, setCart] = useState([]);
   const [dine, setDine] = useState("매장");
-  const [orderNumber, setOrderNumber] = useState("127");
+  const [orderNumber, setOrderNumber] = useState(1);
   const [paying, setPaying] = useState(false);
   const [customerName, setCustomerName] = useState("");
   const [department, setDepartment] = useState("");

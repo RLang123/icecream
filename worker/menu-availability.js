@@ -14,6 +14,9 @@ export function normalizeProjectIngredientData(data) {
       id,
       name: String(ingredient.name ?? "").trim(),
       available: ingredient.available !== false,
+      stock: ingredient.stock != null && Number.isInteger(Number(ingredient.stock)) && Number(ingredient.stock) >= 0
+        ? Number(ingredient.stock)
+        : null,
     }];
   });
   const validIngredientIds = new Set(ingredients.map((ingredient) => ingredient.id));
@@ -41,6 +44,18 @@ export function getMenuAvailability(item, store) {
     manualSoldOut,
     unavailableIngredients,
   };
+}
+
+export function ingredientAvailabilityStatus(ingredient) {
+  return ingredient?.available === false ? "품절" : "재고 정상";
+}
+
+export function storeAvailabilityStatus(ingredients) {
+  const list = asArray(ingredients);
+  const unavailableCount = list.filter((ingredient) => ingredient?.available === false).length;
+  if (list.length > 0 && unavailableCount === list.length) return "전체 재료 품절";
+  if (unavailableCount > 0) return "일부 재료 품절";
+  return "재고 정상";
 }
 
 export function soldOutReason(availability) {

@@ -28,15 +28,15 @@ test("최종 마감 버튼은 3초 전과 처리 중에는 실행할 수 없다"
   assert.equal(canConfirmBusinessClose(0, false), true);
 });
 
-test("첫 클릭은 모달만 열고 서버 요청은 최종 처리 함수에만 있다", async () => {
+test("마감 제어는 설정 탭에 있고 주문 탭에는 상태 안내만 남는다", async () => {
   const source = await readFile(new URL("../src/main.jsx", import.meta.url), "utf8");
-  assert.match(source, /onClick=\{\(\) => activeOrderCount === 0 && setCloseModal\(true\)\}/);
-  assert.match(source, /const closeBusiness = async \(\) =>/);
+  assert.match(source, /function BusinessCloseSettings/);
+  assert.match(source, /설정 탭에서 관리합니다/);
   assert.match(source, /api\("\/api\/business-close", \{\s*method: "POST"/);
-  assert.match(source, /영업 종료 및 주문 상세 정리/);
-  assert.match(source, /정리된 주문 상세 수/);
-  assert.match(source, /진행 중인 주문 \$\{activeOrderCount\}건을 먼저 완료하거나 취소해 주세요\./);
-  assert.match(source, /disabled=\{activeOrderCount !== 0\}/);
+  assert.match(source, /영업 종료 및 Excel 받기/);
+  assert.match(source, /오늘 정리된 주문 수/);
+  assert.match(source, /진행 중인 주문 \{state\.activeOrderCount\}건을 먼저 완료하거나 취소해 주세요\./);
+  assert.match(source, /state\.activeOrderCount !== 0/);
 });
 
 test("진행 중 주문이 있으면 마감 API는 409이며 쓰기 작업을 시작하지 않는다", async () => {
@@ -49,6 +49,7 @@ test("진행 중 주문이 있으면 마감 API는 409이며 쓰기 작업을 �
           async first() {
             if (sql.includes("FROM sessions JOIN users"))
               return { id: "seller-active", role: "seller" };
+            if (sql.includes("FROM business_operation_requests")) return null;
             if (sql.includes("COUNT(*) AS count")) return { count: 1 };
             throw new Error(sql);
           },
@@ -118,6 +119,7 @@ test("마감 API는 본문 seller_id를 무시하고 로그인 판매자 ID만 S
     total_revenue: 12000,
     closed_at: "2026-08-08 15:00:01",
     cleaned_order_count: 2,
+    is_closed: 1,
     request_key: "close-request-1234567890",
   };
   const env = {
@@ -134,6 +136,7 @@ test("마감 API는 본문 seller_id를 무시하고 로그인 판매자 ID만 S
           async first() {
             if (sql.includes("FROM sessions JOIN users"))
               return { id: "seller-session", role: "seller", email: "s@example.invalid", name: "S" };
+            if (sql.includes("FROM business_operation_requests")) return null;
             if (sql.includes("COUNT(*) AS count")) return { count: 0 };
             if (sql.includes("FROM daily_closures")) return closure;
             throw new Error(sql);
@@ -142,8 +145,8 @@ test("마감 API는 본문 seller_id를 무시하고 로그인 판매자 ID만 S
         return statement;
       },
       async batch(batch) {
-        assert.equal(batch.length, 2);
-        return [{ meta: { changes: 1 } }, { meta: { changes: 2 } }];
+        assert.equal(batch.length, 3);
+        return [{ meta: { changes: 1 } }, { meta: { changes: 2 } }, { meta: { changes: 1 } }];
       },
     },
   };

@@ -83,7 +83,7 @@ test("장바구니에 담은 뒤 재료가 소진되면 주문 API가 메뉴와 
             throw new Error(`Unexpected run query: ${sql}`);
           },
           async first() {
-            assert.match(sql, /SELECT owner_id,data FROM projects/);
+            assert.match(sql, /SELECT owner_id,data,inventory_version FROM projects/);
             return project;
           },
         };

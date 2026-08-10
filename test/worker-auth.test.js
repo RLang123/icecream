@@ -24,7 +24,7 @@ test("PBKDF2 정책은 Cloudflare 한도와 기존 형식에 맞는다", async (
 
 test("회원가입 해시로 로그인할 수 있다", async () => {
   const secured = await passwordHash("correct-password", new Uint8Array(16).fill(3));
-  const env={DB:{prepare(sql){return{bind(){return this;},async first(){if(sql.includes("FROM users WHERE email="))return{id:"u",email:"seller@account.geno",name:"seller",role:"seller",password_hash:secured.hash,password_salt:secured.salt};throw new Error(sql);},async run(){if(sql.startsWith("DELETE FROM sessions")||sql.startsWith("INSERT INTO sessions"))return{meta:{changes:1}};throw new Error(sql);}};}}};
+  const env={DB:{prepare(sql){return{sql,bind(){return this;},async first(){if(sql.includes("FROM users WHERE email="))return{id:"u",email:"seller@account.geno",name:"seller",role:"seller",password_hash:secured.hash,password_salt:secured.salt};throw new Error(sql);},async run(){if(sql.startsWith("DELETE FROM sessions")||sql.startsWith("INSERT INTO sessions"))return{meta:{changes:1}};throw new Error(sql);}};},async batch(statements){return statements.map(()=>({meta:{changes:1}}));}}};
   const response=await api(new Request("https://example.com/api/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({accountName:"seller",password:"correct-password"})}),env,{waitUntil(){}});
   assert.equal(response.status,200);
   assert.equal(response.headers.get("cache-control"),"no-store");
@@ -33,7 +33,7 @@ test("회원가입 해시로 로그인할 수 있다", async () => {
 
 test("실제 회원가입 해시를 같은 설정으로 로그인하고 잘못된 비밀번호는 거부한다", async () => {
   let user;
-  const env={DB:{prepare(sql){const statement={sql,args:[],bind(...args){this.args=args;return this;},async first(){if(sql==='SELECT id FROM users WHERE email=?')return user?{id:user.id}:null;if(sql.includes('FROM users WHERE email='))return user;throw new Error(sql);},async run(){if(sql.startsWith('DELETE FROM sessions')||sql.startsWith('INSERT INTO sessions'))return{meta:{changes:1}};throw new Error(sql);}};return statement;},async batch(statements){const values=statements[0].args;user={id:values[0],email:values[1],name:values[2],role:values[3],password_hash:values[4],password_salt:values[5]};return statements.map(()=>({meta:{changes:1}}));}}};
+  const env={DB:{prepare(sql){const statement={sql,args:[],bind(...args){this.args=args;return this;},async first(){if(sql==='SELECT id FROM users WHERE email=?')return user?{id:user.id}:null;if(sql.includes('FROM users WHERE email='))return user;throw new Error(sql);},async run(){if(sql.startsWith('DELETE FROM sessions')||sql.startsWith('INSERT INTO sessions'))return{meta:{changes:1}};throw new Error(sql);}};return statement;},async batch(statements){if(statements[0].sql.startsWith('INSERT INTO users')){const values=statements[0].args;user={id:values[0],email:values[1],name:values[2],role:values[3],password_hash:values[4],password_salt:values[5],last_login_at:null,login_count:0};}else{user.last_login_at='2026-08-09 00:00:00';user.login_count+=1;}return statements.map(()=>({meta:{changes:1}}));}}};
   const register=await api(new Request('https://example.com/api/register',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountName:'new-seller',password:'correct-password'})}),env,{waitUntil(){}});
   assert.equal(register.status,201);
   assert.equal(register.headers.get('cache-control'),'no-store');
@@ -120,7 +120,7 @@ test("Turnstile 성공 토큰은 한 번 허용하고 재사용 실패는 거부
   const originalFetch=globalThis.fetch;let calls=0;
   globalThis.fetch=async()=>Response.json(calls++===0?{success:true,action:'login',hostname:'example.com'}:{success:false,'error-codes':['timeout-or-duplicate']});
   try {
-    const env={TURNSTILE_REQUIRED:'true',TURNSTILE_SITE_KEY:'site',TURNSTILE_SECRET:'secret',TURNSTILE_HOSTNAMES:'example.com',DB:{prepare(sql){return{bind(){return this;},async first(){if(sql.includes('FROM users WHERE email='))return{id:'u',email:'seller@account.geno',name:'seller',role:'seller',password_hash:secured.hash,password_salt:secured.salt};throw new Error(sql);},async run(){if(sql.startsWith('DELETE FROM sessions')||sql.startsWith('INSERT INTO sessions'))return{meta:{changes:1}};throw new Error(sql);}};}}};
+    const env={TURNSTILE_REQUIRED:'true',TURNSTILE_SITE_KEY:'site',TURNSTILE_SECRET:'secret',TURNSTILE_HOSTNAMES:'example.com',DB:{prepare(sql){return{sql,bind(){return this;},async first(){if(sql.includes('FROM users WHERE email='))return{id:'u',email:'seller@account.geno',name:'seller',role:'seller',password_hash:secured.hash,password_salt:secured.salt};throw new Error(sql);},async run(){if(sql.startsWith('DELETE FROM sessions')||sql.startsWith('INSERT INTO sessions'))return{meta:{changes:1}};throw new Error(sql);}};},async batch(statements){return statements.map(()=>({meta:{changes:1}}));}}};
     const request=()=>new Request('https://example.com/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({accountName:'seller',password:'correct-password',turnstileToken:'single-use-token'})});
     assert.equal((await api(request(),env,{})).status,200);
     assert.equal((await api(request(),env,{})).status,403);

@@ -17,17 +17,17 @@ test("저장 후 다시 불러와도 재료 상태와 메뉴 연결이 유지된
             if (sql.includes("FROM sessions JOIN users")) {
               return { id: "seller-1", email: "seller@test.dev", name: "판매자", role: "seller" };
             }
-            if (sql === "SELECT slug FROM projects WHERE owner_id=?") {
-              return savedProject ? { slug: savedProject.slug } : null;
+            if (sql === "SELECT slug,inventory_version FROM projects WHERE owner_id=?") {
+              return savedProject ? { slug: savedProject.slug, inventory_version: savedProject.inventory_version } : null;
             }
-            if (sql === "SELECT data,slug FROM projects WHERE owner_id=?") {
+            if (sql === "SELECT data,slug,inventory_version FROM projects WHERE owner_id=?") {
               return savedProject;
             }
             throw new Error(`Unexpected first query: ${sql}`);
           },
           async run() {
             if (sql.startsWith("INSERT INTO projects")) {
-              savedProject = { data: values[1], slug: values[2] };
+              savedProject = { data: values[1], slug: values[2], inventory_version: 1 };
               return { meta: { changes: 1 } };
             }
             throw new Error(`Unexpected run query: ${sql}`);

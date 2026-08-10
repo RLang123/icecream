@@ -1,0 +1,13 @@
+.settings-business-close { margin-top: 36px; }
+.business-close-open.reopen { background: #24724f; }
+.excel-retry { width: 100%; margin-top: 8px; border: 1px solid #d8d0ca; border-radius: 10px; background: #fff; padding: 10px; font-weight: 700; }
+.business-status-note { margin-top: 18px; border-radius: 10px; padding: 10px 12px; background: #edf8f2; color: #236244; font-size: 11px; }
+.business-status-note.closed { background: #fff2f2; color: #9b3636; }
+.seller-help-modal { position: relative; width: min(620px, 92vw); max-height: min(82vh, 760px); overflow: auto; background: #fff; border-radius: 20px; padding: 26px; overscroll-behavior: contain; }
+.seller-help-modal h2 { margin: 5px 0 18px; }
+.seller-help-content h3 { font-size: 14px; margin: 18px 0 4px; }
+.seller-help-content p { font-size: 11px; line-height: 1.75; color: #635c57; margin: 0; }
+.store-qr { display: flex; align-items: center; gap: 14px; margin: 14px 0; padding: 12px; background: #fff; border: 1px solid #eee; border-radius: 14px; }
+.store-qr img { width: 150px; height: 150px; image-rendering: pixelated; }
+.store-qr button { border: 1px solid #ddd; background: #fff; border-radius: 9px; padding: 9px; font-weight: 700; }
+@media (max-width: 600px) { .seller-help-modal { width: 94vw; max-height: 88dvh; padding: 20px; } .store-qr { flex-direction: column; } .store-qr img { width: min(70vw, 260px); height: auto; } }

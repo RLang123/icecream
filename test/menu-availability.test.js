@@ -2,8 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   getMenuAvailability,
+  ingredientAvailabilityStatus,
   normalizeProjectIngredientData,
   soldOutReason,
+  storeAvailabilityStatus,
 } from "../worker/menu-availability.js";
 
 const store = (a = true, b = true) => ({
@@ -59,4 +61,45 @@ test("과거 데이터는 빈 배열로 보정하고 고아 및 중복 참조를
   });
   assert.deepEqual(withIngredients.items[0].ingredientIds, ["a"]);
   assert.equal(withIngredients.store.ingredients[0].available, true);
+});
+
+test("바닐라·우유·베리가 모두 활성화되면 재고 숫자 없이 모든 메뉴가 판매 가능하다", () => {
+  const ingredients=[
+    {id:"vanilla",name:"바닐라",available:true},
+    {id:"milk",name:"우유",available:true,stock:undefined},
+    {id:"berry",name:"베리",available:true,stock:0},
+  ];
+  const menus=[{ingredientIds:["vanilla"]},{ingredientIds:["milk"]},{ingredientIds:["berry"]}];
+  assert.deepEqual(menus.map((item)=>getMenuAvailability(item,{ingredients}).soldOut),[false,false,false]);
+  assert.equal(storeAvailabilityStatus(ingredients),"재고 정상");
+  assert.ok(ingredients.every((ingredient)=>ingredientAvailabilityStatus(ingredient)==="재고 정상"));
+});
+
+test("우유만 명시적으로 품절하면 연결 메뉴만 품절되고 재활성화하면 즉시 복구된다", () => {
+  const ingredients=[{id:"vanilla",available:true},{id:"milk",available:false},{id:"berry",available:true}];
+  const vanilla={ingredientIds:["vanilla"]};const milk={ingredientIds:["milk"]};const berry={ingredientIds:["berry"]};
+  assert.deepEqual([vanilla,milk,berry].map((item)=>getMenuAvailability(item,{ingredients}).soldOut),[false,true,false]);
+  assert.equal(storeAvailabilityStatus(ingredients),"일부 재료 품절");
+  ingredients[1].available=true;
+  assert.equal(getMenuAvailability(milk,{ingredients}).soldOut,false);
+  assert.equal(storeAvailabilityStatus(ingredients),"재고 정상");
+});
+
+test("베리만 품절하면 베리 연결 메뉴와 베리를 공유하는 메뉴에만 영향이 간다", () => {
+  const ingredients=[{id:"vanilla",available:true},{id:"milk",available:true},{id:"berry",available:false}];
+  const menus=[{name:"바닐라",ingredientIds:["vanilla"]},{name:"라테",ingredientIds:["milk"]},{name:"베리",ingredientIds:["berry"]},{name:"베리 라테",ingredientIds:["milk","berry"]}];
+  assert.deepEqual(menus.map((item)=>getMenuAvailability(item,{ingredients}).soldOut),[false,false,true,true]);
+});
+
+test("새로고침 정규화 후에도 서버 available 상태가 판매자·소비자 판정에 동일하게 유지된다", () => {
+  const source={store:{ingredients:[{id:"milk",name:"우유",available:true,stock:undefined},{id:"berry",name:"베리",available:false,stock:null}]},items:[{id:"latte",ingredientIds:["milk"]},{id:"berry",ingredientIds:["berry"]}]};
+  const first=normalizeProjectIngredientData(source);const refreshed=normalizeProjectIngredientData(JSON.parse(JSON.stringify(first)));
+  assert.deepEqual(refreshed.store.ingredients.map((ingredient)=>ingredient.available),[true,false]);
+  assert.deepEqual(refreshed.items.map((item)=>getMenuAvailability(item,refreshed.store).soldOut),[false,true]);
+  assert.deepEqual(refreshed.store.ingredients.map(ingredientAvailabilityStatus),["재고 정상","품절"]);
+});
+
+test("모든 재료를 명시적으로 품절 처리한 경우에만 전체 재료 품절이다", () => {
+  assert.equal(storeAvailabilityStatus([{available:false},{available:false}]),"전체 재료 품절");
+  assert.equal(storeAvailabilityStatus([{available:true},{available:false}]),"일부 재료 품절");
 });

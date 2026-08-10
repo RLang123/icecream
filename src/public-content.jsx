@@ -1,6 +1,5 @@
 import React from "react";
 import { ChevronRight, Sparkles } from "lucide-react";
-import { AdSenseLoader, AdSlot, adsenseConfig } from "./adsense.jsx";
 import "./public-content.css";
 
 export const PUBLIC_CONTENT_PATHS = new Set(["/about", "/guide", "/privacy", "/terms"]);
@@ -62,12 +61,11 @@ const pageContent = {
   },
 };
 
-export function PublicContentPage({ pathname = location.pathname, adConfig = adsenseConfig() }) {
+export function PublicContentPage({ pathname = location.pathname }) {
   const page = pageContent[pathname];
   if (!page) return null;
   return (
     <div className="public-content-page">
-      <AdSenseLoader pathname={pathname} config={adConfig} />
       <header className="content-nav">
         <a className="content-brand" href="/login" aria-label="GENO Studio 홈">
           <span><Sparkles size={17} /></span><b>GENO Studio</b>
@@ -83,7 +81,6 @@ export function PublicContentPage({ pathname = location.pathname, adConfig = ads
         <div className="content-sections">
           {page.sections.map(([title, copy]) => <section key={title}><h2>{title}</h2><p>{copy}</p></section>)}
         </div>
-        <AdSlot pathname={pathname} config={adConfig} />
         <a className="content-start" href="/login">GENO 시작 화면으로 <ChevronRight /></a>
       </main>
       <footer className="content-footer">

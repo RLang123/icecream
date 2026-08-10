@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import QRCode from "qrcode";
 import {
   ArrowLeft,
   BarChart3,
@@ -35,9 +36,15 @@ import "./sound.css";
 import "./auth-modal.css";
 import "./availability.css";
 import "./business-close.css";
+import "./preview-features.css";
+import "./inventory.css";
+import "./responsive.css";
+import "./order-alert.css";
 import {
   orderListChange,
   orderPollDelay,
+  newlyAddedOrderIds,
+  createOrderAlertTracker,
   shouldStartOrderPoll,
 } from "./order-polling.js";
 import {
@@ -46,10 +53,13 @@ import {
 } from "./business-close.js";
 import {
   getMenuAvailability,
+  ingredientAvailabilityStatus,
   normalizeProjectIngredientData,
   soldOutReason,
+  storeAvailabilityStatus,
 } from "../worker/menu-availability.js";
 import { PublicContentPage, PUBLIC_CONTENT_PATHS } from "./public-content.jsx";
+import { createClosingXlsx, closingFilename } from "./closing-xlsx.js";
 
 const seed = {
   store: {
@@ -197,7 +207,7 @@ const readAlertMp3 = async (file) => {
     reader.readAsDataURL(file);
   });
 };
-const playNotificationSound = (store, contextRef) => {
+const playNotificationSound = async (store, contextRef) => {
   const volume = Math.max(
     0.1,
     Math.min(1, Number(store.notificationVolume ?? 0.8)),
@@ -205,8 +215,12 @@ const playNotificationSound = (store, contextRef) => {
   if (store.notificationSound === "custom" && store.notificationAudio) {
     const audio = new Audio(store.notificationAudio);
     audio.volume = volume;
-    audio.play().catch(() => {});
-    return;
+    try {
+      await audio.play();
+      return true;
+    } catch {
+      return false;
+    }
   }
   try {
     let context = contextRef.current;
@@ -214,7 +228,8 @@ const playNotificationSound = (store, contextRef) => {
       context = new (window.AudioContext || window.webkitAudioContext)();
       contextRef.current = context;
     }
-    context.resume?.();
+    await context.resume?.();
+    if (context.state !== "running") return false;
     const gain = context.createGain();
     gain.gain.setValueAtTime(volume * 0.55, context.currentTime);
     gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 1.45);
@@ -251,7 +266,10 @@ const playNotificationSound = (store, contextRef) => {
         oscillator.stop(context.currentTime + start + length);
       },
     );
-  } catch {}
+    return true;
+  } catch {
+    return false;
+  }
 };
 const isMenuSoldOut = (item, store) =>
   getMenuAvailability(item, store).soldOut;
@@ -1313,12 +1331,25 @@ function Studio({ user, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [storeSlug, setStoreSlug] = useState(null);
   const [exportInfo, setExportInfo] = useState(null);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
+  const [headerMoreOpen, setHeaderMoreOpen] = useState(false);
+  const [audioReady, setAudioReady] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const [pendingAlertCount, setPendingAlertCount] = useState(0);
+  const helpButtonRef = useRef(null);
   const [saveState, setSaveState] = useState("saved");
   const fileRef = useRef();
   const loaded = useRef(false);
+  const inventoryVersionRef = useRef(0);
   const latestOrderId = useRef(null);
   const ordersInitialized = useRef(false);
   const audioRef = useRef(null);
+  const audioReadyRef = useRef(false);
+  const seenOrderIdsRef = useRef(new Set());
+  const alertTrackerRef = useRef(createOrderAlertTracker());
+  const alertTimerRef = useRef(null);
+  const playAlertRef = useRef(async () => false);
   const dataRef = useRef(data);
   const sectionRef = useRef(section);
   const refreshOrdersRef = useRef(() => {});
@@ -1330,6 +1361,7 @@ function Studio({ user, onLogout }) {
       .then((r) => {
         if (r.data) setData(normalizeProjectIngredientData(r.data));
         setStoreSlug(r.slug);
+        inventoryVersionRef.current = Number(r.inventoryVersion || 0);
         loaded.current = true;
       })
       .catch(() => {
@@ -1341,21 +1373,71 @@ function Studio({ user, onLogout }) {
     setSaveState("saving");
     const timer = setTimeout(
       () =>
-        api("/api/project", { method: "PUT", body: JSON.stringify({ data }) })
-          .then(() => setSaveState("saved"))
+        api("/api/project", { method: "PUT", body: JSON.stringify({ data, inventoryVersion: inventoryVersionRef.current }) })
+          .then((r) => { inventoryVersionRef.current = Number(r.inventoryVersion || inventoryVersionRef.current); setSaveState("saved"); })
           .catch(() => setSaveState("error")),
       700,
     );
     return () => clearTimeout(timer);
   }, [data]);
-  useEffect(() => {
-    const unlock = () => {
+  const ringPendingOrders = async () => {
+    if (!alertTrackerRef.current.size) return false;
+    if (!audioReadyRef.current) {
+      setAudioBlocked(true);
+      return false;
+    }
+    const played = await playNotificationSound(dataRef.current.store, audioRef);
+    setAudioBlocked(!played);
+    if (played && navigator.vibrate) navigator.vibrate([180, 80, 180]);
+    return played;
+  };
+  playAlertRef.current = ringPendingOrders;
+  const ensureAlertTimer = () => {
+    if (alertTimerRef.current || !alertTrackerRef.current.size) return;
+    alertTimerRef.current = window.setInterval(
+      () => playAlertRef.current(),
+      12000,
+    );
+  };
+  const acknowledgeOrder = (id) => {
+    const remaining = alertTrackerRef.current.acknowledge(id);
+    setPendingAlertCount(remaining);
+    if (!remaining && alertTimerRef.current) {
+      clearInterval(alertTimerRef.current);
+      alertTimerRef.current = null;
+      setAudioBlocked(false);
+    }
+  };
+  const activateAudio = async () => {
+    if (audioReadyRef.current) return true;
+    try {
       if (!audioRef.current)
-        audioRef.current = new (window.AudioContext ||
-          window.webkitAudioContext)();
+        audioRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      await audioRef.current.resume?.();
+      const ready = audioRef.current.state === "running";
+      audioReadyRef.current = ready;
+      setAudioReady(ready);
+      if (ready) {
+        localStorage.setItem("geno-order-alert-enabled", "true");
+        setAudioBlocked(false);
+        if (alertTrackerRef.current.size) playAlertRef.current();
+      }
+      return ready;
+    } catch {
+      setAudioBlocked(true);
+      return false;
+    }
+  };
+  useEffect(() => {
+    const unlock = () => activateAudio();
+    document.addEventListener("pointerdown", unlock, { passive: true });
+    document.addEventListener("keydown", unlock);
+    if (localStorage.getItem("geno-order-alert-enabled") === "true") activateAudio();
+    return () => {
+      document.removeEventListener("pointerdown", unlock);
+      document.removeEventListener("keydown", unlock);
+      if (alertTimerRef.current) clearInterval(alertTimerRef.current);
     };
-    document.addEventListener("pointerdown", unlock, { once: true });
-    return () => document.removeEventListener("pointerdown", unlock);
   }, []);
   useEffect(() => {
     sectionRef.current = section;
@@ -1373,20 +1455,25 @@ function Studio({ user, onLogout }) {
     let refreshPending = false;
     let stopped = false;
     let ordersSignature = "";
-    const ring = () => playNotificationSound(dataRef.current.store, audioRef);
     const accept = (list) => {
+      const detection = newlyAddedOrderIds(
+        seenOrderIdsRef.current,
+        list,
+        ordersInitialized.current,
+      );
+      seenOrderIdsRef.current = detection.seen;
       const newest = list[0];
-      const hasNew =
-        ordersInitialized.current &&
-        newest?.id &&
-        newest.id !== latestOrderId.current;
-      if (hasNew) {
+      if (detection.added.length) {
         lastNewAt = Date.now();
         setSection("orders");
-        ring();
+        if (alertTrackerRef.current.start(detection.added)) {
+          setPendingAlertCount(alertTrackerRef.current.size);
+          playAlertRef.current();
+          ensureAlertTimer();
+        }
         if ("Notification" in window && Notification.permission === "granted")
           new Notification("새 주문이 도착했어요", {
-            body: `#${numericOrderNumber(newest)} · ${newest.customer_name}님의 주문을 확인해 주세요.`,
+            body: `${detection.added.length}건의 새 주문을 확인해 주세요.`,
           });
       }
       latestOrderId.current = newest?.id || null;
@@ -1497,8 +1584,9 @@ function Studio({ user, onLogout }) {
       setSaveState("saving");
       const saved = await api("/api/project", {
         method: "PUT",
-        body: JSON.stringify({ data }),
+        body: JSON.stringify({ data, inventoryVersion: inventoryVersionRef.current }),
       });
+      inventoryVersionRef.current = Number(saved.inventoryVersion || inventoryVersionRef.current);
       const result = await api("/api/export", { method: "POST" });
       const slug = result.slug || saved.slug;
       setStoreSlug(slug);
@@ -1530,6 +1618,26 @@ function Studio({ user, onLogout }) {
     };
     r.readAsText(f);
   };
+  useEffect(() => {
+    if (!mobileMoreOpen && !headerMoreOpen) return;
+    const close = () => {
+      setMobileMoreOpen(false);
+      setHeaderMoreOpen(false);
+    };
+    const keydown = (event) => event.key === "Escape" && close();
+    window.addEventListener("popstate", close);
+    document.addEventListener("keydown", keydown);
+    return () => {
+      window.removeEventListener("popstate", close);
+      document.removeEventListener("keydown", keydown);
+    };
+  }, [mobileMoreOpen, headerMoreOpen]);
+
+  const selectSection = (nextSection) => {
+    setSection(nextSection);
+    setMobileMoreOpen(false);
+    setHeaderMoreOpen(false);
+  };
 
   if (customer) return <Kiosk data={data} onExit={() => setCustomer(false)} />;
   return (
@@ -1543,7 +1651,8 @@ function Studio({ user, onLogout }) {
           <b>Studio</b>
         </div>
         <div className="project-title">
-          <span className="status-dot" /> {data.store.name}
+          <span className="status-dot" />
+          <span className="store-title">{data.store.name}</span>
           <span className="muted">/ 키오스크 01</span>
         </div>
         <div className="top-actions">
@@ -1555,11 +1664,12 @@ function Studio({ user, onLogout }) {
                 ? "저장 실패 · 연결 확인"
                 : "서버에 안전하게 저장됨"}
           </span>
-          <button className="icon-btn" onClick={exportData} title="내보내기">
+          <button className="icon-btn desktop-action" aria-label="프로젝트 파일 다운로드" onClick={exportData} title="내보내기">
             <Download size={18} />
           </button>
           <button
-            className="icon-btn"
+            className="icon-btn desktop-action"
+            aria-label="프로젝트 파일 가져오기"
             onClick={() => fileRef.current.click()}
             title="가져오기"
           >
@@ -1572,13 +1682,24 @@ function Studio({ user, onLogout }) {
             accept="application/json"
             onChange={importData}
           />
-          <button className="btn secondary" onClick={() => setCustomer(true)}>
+          <button className="btn secondary desktop-action" aria-label="고객 화면 미리보기" onClick={() => setCustomer(true)}>
             <Eye size={17} /> 미리보기
           </button>
-          <button className="btn primary" onClick={exportSites}>
+          <button className="btn primary desktop-action" aria-label="매장 내보내기" onClick={exportSites}>
             <Download size={16} /> 내보내기
           </button>
           <ProfileMenu user={user} onLogout={onLogout} />
+          <div className="mobile-header-menu">
+            <button className="icon-btn" aria-label="상단 보조 기능 더보기" aria-expanded={headerMoreOpen} onClick={() => setHeaderMoreOpen((open) => !open)}>
+              <MoreHorizontal size={20} />
+            </button>
+            {headerMoreOpen && <div className="mobile-header-popover">
+              <button onClick={exportData}><Download /> 프로젝트 다운로드</button>
+              <button onClick={() => fileRef.current.click()}><Upload /> 프로젝트 가져오기</button>
+              <button onClick={() => setCustomer(true)}><Eye /> 미리보기</button>
+              <button onClick={exportSites}><Download /> 매장 내보내기</button>
+            </div>}
+          </div>
         </div>
       </header>
       <aside className="sidebar">
@@ -1633,7 +1754,7 @@ function Studio({ user, onLogout }) {
           />
         </nav>
         <div className="sidebar-bottom">
-          <button>
+          <button ref={helpButtonRef} onClick={() => setHelpOpen(true)}>
             <CircleHelp size={19} /> 도움말
           </button>
           <div className="profile">
@@ -1656,6 +1777,7 @@ function Studio({ user, onLogout }) {
           orders={orders}
           setOrders={setOrders}
           refreshOrders={() => refreshOrdersRef.current()}
+          acknowledgeOrder={acknowledgeOrder}
         />
         <section className="preview-area">
           <div className="preview-toolbar">
@@ -1685,6 +1807,29 @@ function Studio({ user, onLogout }) {
           </div>
         </section>
       </main>
+      <div className={`order-alert-status ${audioBlocked ? "blocked" : audioReady ? "ready" : "waiting"}`} role={audioBlocked ? "alert" : "status"}>
+        <span>{audioBlocked && pendingAlertCount ? `새 주문 ${pendingAlertCount}건 · 소리 재생이 차단됐습니다` : audioReady ? "주문 알림 켜짐" : "화면을 한 번 눌러 주문 알림을 켜주세요"}</span>
+        <button aria-label="알림 소리 테스트" onClick={async () => { await activateAudio(); const played = await playNotificationSound(dataRef.current.store, audioRef); setAudioBlocked(!played); }}>알림 소리 테스트</button>
+      </div>
+      <nav className="mobile-bottom-nav" aria-label="판매자 주요 메뉴">
+        <Nav icon={Coffee} label="메뉴" active={section === "menu"} onClick={() => selectSection("menu")} />
+        <Nav icon={Package} label="재료" active={section === "ingredients"} onClick={() => selectSection("ingredients")} />
+        <Nav icon={ShoppingBag} label="주문" active={section === "orders"} onClick={() => selectSection("orders")} />
+        <Nav icon={BarChart3} label="분석" active={section === "analytics"} onClick={() => selectSection("analytics")} />
+        <button className={mobileMoreOpen ? "active" : ""} aria-label="판매자 메뉴 더보기" aria-expanded={mobileMoreOpen} onClick={() => setMobileMoreOpen((open) => !open)}><MoreHorizontal size={21} /><span>더보기</span></button>
+      </nav>
+      {mobileMoreOpen && <div className="mobile-more-backdrop" onClick={() => setMobileMoreOpen(false)}>
+        <section className="mobile-more-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title" onClick={(event) => event.stopPropagation()}>
+          <div className="mobile-more-head"><h2 id="mobile-more-title">더보기</h2><button aria-label="더보기 메뉴 닫기" onClick={() => setMobileMoreOpen(false)}><X /></button></div>
+          <div className="mobile-more-grid">
+            <Nav icon={LayoutGrid} label="디자인" active={section === "design"} onClick={() => selectSection("design")} />
+            <Nav icon={Upload} label="로고·사진" active={section === "media"} onClick={() => selectSection("media")} />
+            <Nav icon={Sparkles} label="알림 소리" active={section === "sound"} onClick={() => selectSection("sound")} />
+            <Nav icon={Settings} label="설정" active={section === "settings"} onClick={() => selectSection("settings")} />
+            <button aria-label="판매자 도움말 열기" onClick={() => { setMobileMoreOpen(false); setHelpOpen(true); }}><CircleHelp /><span>도움말</span></button>
+          </div>
+        </section>
+      </div>}
       {published && (
         <div className="toast">
           <span>
@@ -1699,13 +1844,14 @@ function Studio({ user, onLogout }) {
       {exportInfo && (
         <ExportModal links={exportInfo} onClose={() => setExportInfo(null)} />
       )}
+      {helpOpen && <SellerHelpModal onClose={() => { setHelpOpen(false); requestAnimationFrame(() => helpButtonRef.current?.focus()); }} />}
     </div>
   );
 }
 
 function Nav({ icon: Icon, label, active, onClick }) {
   return (
-    <button className={active ? "active" : ""} onClick={onClick}>
+    <button className={active ? "active" : ""} aria-label={`${label} 화면 열기`} aria-current={active ? "page" : undefined} onClick={onClick}>
       <Icon size={19} />
       <span>{label}</span>
     </button>
@@ -1721,6 +1867,7 @@ function Panel({
   orders = [],
   setOrders,
   refreshOrders,
+  acknowledgeOrder,
 }) {
   const [editId, setEditId] = useState(null);
   const [newCategory, setNewCategory] = useState("");
@@ -1902,6 +2049,7 @@ function Panel({
         data={data}
         setData={setData}
         refreshOrders={refreshOrders}
+        acknowledgeOrder={acknowledgeOrder}
       />
     );
   if (section === "ingredients")
@@ -1915,7 +2063,7 @@ function Panel({
     return <SoundPanel data={data} updateStore={updateStore} />;
   if (section === "settings")
     return (
-      <SettingsPanel data={data} setData={setData} updateStore={updateStore} />
+      <SettingsPanel data={data} setData={setData} updateStore={updateStore} refreshOrders={refreshOrders} />
     );
   return (
     <div className="control-panel">
@@ -2111,7 +2259,7 @@ function SoundPanel({ data, updateStore }) {
           <b>강한 알림 모드</b>
           <small>기본 알림도 이전보다 더 크고 약 1.4초 동안 재생됩니다.</small>
         </div>
-        <button onClick={() => preview({})}>미리 듣기</button>
+        <button onClick={() => preview({})}>알림 소리 테스트</button>
       </div>
       <h3 className="section-title">기본 알림음</h3>
       <div className="sound-grid">
@@ -2208,7 +2356,7 @@ function SoundPanel({ data, updateStore }) {
   );
 }
 
-function SettingsPanel({ data, setData, updateStore }) {
+function SettingsPanel({ data, setData, updateStore, refreshOrders }) {
   const [department, setDepartment] = useState("");
   const departments = data.store.departments || [];
   const add = () => {
@@ -2300,12 +2448,55 @@ function SettingsPanel({ data, setData, updateStore }) {
           </small>
         </div>
       </div>
+      <BusinessCloseSettings data={data} refreshOrders={refreshOrders} />
     </InfoPanel>
   );
+}
+function BusinessCloseSettings({ data, refreshOrders }) {
+  const [state, setState] = useState({ closure: null, activeOrderCount: null, closed: false });
+  const [modal, setModal] = useState(false);
+  const [countdown, setCountdown] = useState(BUSINESS_CLOSE_COUNTDOWN_SECONDS);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [excelFailed, setExcelFailed] = useState(false);
+  const load = async () => { const result = await api("/api/business-close"); setState(result); return result; };
+  useEffect(() => { load().catch(() => setState((value) => ({ ...value, activeOrderCount: null }))); }, []);
+  useEffect(() => { if (!modal) return; setCountdown(BUSINESS_CLOSE_COUNTDOWN_SECONDS); const timer=setInterval(() => setCountdown((value) => Math.max(0, value - 1)), 1000); return () => clearInterval(timer); }, [modal]);
+  const downloadExcel = async () => {
+    const report = await api("/api/business-close/export");
+    const bytes = createClosingXlsx(report.closure, report.orders);
+    const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const anchor=document.createElement("a");anchor.href=url;anchor.download=closingFilename(data.store.name, report.closure.business_date);anchor.click();setTimeout(() => URL.revokeObjectURL(url), 1000);setExcelFailed(false);
+  };
+  const close = async () => {
+    if (state.activeOrderCount !== 0 || !canConfirmBusinessClose(countdown, busy)) return;
+    setBusy(true);setError("");
+    try { const result=await api("/api/business-close",{method:"POST",body:JSON.stringify({requestKey:crypto.randomUUID()})});setState((value)=>({...value,closed:true,closure:result.closure,activeOrderCount:0}));setModal(false);refreshOrders?.();try{await downloadExcel();}catch{setExcelFailed(true);} }
+    catch (exception) { setError(exception.message);await load().catch(()=>{}); }
+    finally { setBusy(false); }
+  };
+  const reopen = async () => { setBusy(true);setError("");try{const result=await api("/api/business-reopen",{method:"POST",body:JSON.stringify({requestKey:crypto.randomUUID()})});setState((value)=>({...value,closed:false,closure:result.closure}));refreshOrders?.();}catch(exception){setError(exception.message);await load().catch(()=>{});}finally{setBusy(false);} };
+  const closure=state.closure;
+  return <section className="business-close-card settings-business-close">
+    <span>DAILY BUSINESS</span><h3>{state.closed ? "영업 종료" : "영업 중"}</h3>
+    <dl>
+      <div><dt>현재 상태</dt><dd>{state.closed ? "영업 종료" : "영업 중"}</dd></div>
+      <div><dt>마지막 종료 시각</dt><dd>{closure?.closed_at ? new Date(`${closure.closed_at}Z`).toLocaleString("ko-KR") : "없음"}</dd></div>
+      <div><dt>오늘 정리된 주문 수</dt><dd>{closure?.cleaned_order_count || 0}건</dd></div>
+      <div><dt>오늘 순매출</dt><dd>{won(closure?.net_revenue || 0)}</dd></div>
+    </dl>
+    {state.activeOrderCount > 0 && <div className="business-close-warning">진행 중인 주문 {state.activeOrderCount}건을 먼저 완료하거나 취소해 주세요.</div>}
+    {error && <div className="business-close-error">{error}</div>}
+    {state.closed ? <button className="business-close-open reopen" disabled={busy} onClick={reopen}>영업 재개</button> : <button className="business-close-open" disabled={busy || state.activeOrderCount !== 0} onClick={() => setModal(true)}>오늘 영업 종료</button>}
+    {excelFailed && <button className="excel-retry" onClick={() => downloadExcel().catch(() => setExcelFailed(true))}>Excel 다시 받기</button>}
+    {closure && <button className="excel-retry" onClick={() => downloadExcel().catch(() => setExcelFailed(true))}>오늘 마감 Excel 받기</button>}
+    {modal && <div className="modal-backdrop" onClick={() => !busy && setModal(false)}><div className="business-close-modal" role="dialog" aria-modal="true" onClick={(event)=>event.stopPropagation()}><span className="auth-kicker">DAILY CLOSE</span><h2>오늘 영업을 종료할까요?</h2><p>신규 주문이 중지되고 오늘 주문 상세가 비식별화됩니다. 결제·환불·요약은 보존되며 상세는 재개해도 복원되지 않습니다.</p>{error&&<div className="business-close-error">{error}</div>}<button className="business-close-confirm" disabled={!canConfirmBusinessClose(countdown,busy)||state.activeOrderCount!==0} onClick={close}>{busy?"처리 중...":countdown>0?`${countdown}초 후 실행 가능`:"영업 종료 및 Excel 받기"}</button><button className="modal-cancel" disabled={busy} onClick={()=>setModal(false)}>취소</button></div></div>}
+  </section>;
 }
 function IngredientPanel({ data, setData }) {
   const [name, setName] = useState("");
   const ingredients = data.store.ingredients || [];
+  const overallStatus = storeAvailabilityStatus(ingredients);
   const update = (change) =>
     setData((d) => {
       const current = d.store.ingredients || [];
@@ -2317,7 +2508,7 @@ function IngredientPanel({ data, setData }) {
     if (!value) return;
     update((current) => [
       ...current,
-      { id: `ingredient-${crypto.randomUUID()}`, name: value, available: true },
+      { id: `ingredient-${crypto.randomUUID()}`, name: value, available: true, stock: null },
     ]);
     setName("");
   };
@@ -2347,11 +2538,8 @@ function IngredientPanel({ data, setData }) {
       <div className="ingredient-summary">
         <Package />
         <div>
-          <b>
-            {ingredients.filter((i) => i.available).length} /{" "}
-            {ingredients.length}
-          </b>
-          <small>판매 가능한 재료</small>
+          <b>{overallStatus}</b>
+          <small>전체 재료 상태</small>
         </div>
       </div>
       <div className="ingredient-list">
@@ -2362,6 +2550,7 @@ function IngredientPanel({ data, setData }) {
           >
             <button
               className="stock-toggle"
+              aria-label={`${ingredient.name} ${ingredient.available ? "재고 있음, 소진으로 변경" : "소진 상태, 판매 가능으로 변경"}`}
               onClick={() =>
                 update((current) =>
                   current.map((x) =>
@@ -2391,12 +2580,14 @@ function IngredientPanel({ data, setData }) {
                   }}
                 />
                 <small>
-                  {ingredient.available ? "재고 있음" : "소진 · 연결 메뉴 품절"}
+                  {ingredientAvailabilityStatus(ingredient)}
+                  {ingredientAvailabilityStatus(ingredient) === "품절" && " · 연결 메뉴 품절"}
                 </small>
               </span>
             </button>
             <button
               className="ingredient-delete"
+              aria-label={`${ingredient.name} 재료 삭제`}
               onClick={() => remove(ingredient.id)}
             >
               <Trash2 />
@@ -2454,7 +2645,7 @@ function MenuPicker({ items, store, onClose, onSelect }) {
     </div>
   );
 }
-function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
+function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, acknowledgeOrder }) {
   const [paymentOrder, setPaymentOrder] = useState(null);
   const [payment, setPayment] = useState("prepaid");
   const [editId, setEditId] = useState(null);
@@ -2515,6 +2706,7 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
       (filter === "cancelled" && ["cancelled", "refunded"].includes(o.status)),
   );
   const update = async (id, status, extra = {}) => {
+    acknowledgeOrder?.(id);
     try {
       const result = await api(`/api/orders/${id}`, {
         method: "PATCH",
@@ -2682,7 +2874,7 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
       </div>
       <div className="order-list">
         {shown.map((o) => (
-          <article key={o.id} className={o.status === "new" ? "new" : ""}>
+          <article key={o.id} className={o.status === "new" ? "new" : ""} onClick={() => acknowledgeOrder?.(o.id)}>
             <div>
               <span>
                 #{numericOrderNumber(o)} · {labels[o.status]}
@@ -2738,6 +2930,11 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
               </div>
             )}
             <div className="order-actions">
+              {o.status === "new" && (
+                <button className="acknowledge" onClick={() => acknowledgeOrder?.(o.id)}>
+                  알림 확인
+                </button>
+              )}
               {o.status === "new" && (
                 <button onClick={() => update(o.id, "preparing")}>
                   준비 시작
@@ -2797,93 +2994,9 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders }) {
           </div>
         )}
       </div>
-      <section className="business-close-card">
-        <span>DAILY CLOSE</span>
-        <h3>
-          {closureInconsistent
-            ? "마감 상태 확인 필요"
-            : closure
-              ? "오늘 영업 종료됨"
-              : "오늘 영업 종료"}
-        </h3>
-        {closureInconsistent ? (
-          <div className="business-close-warning">
-            마감 기록이 있지만 진행 중인 주문 {activeOrderCount}건이 남아
-            있습니다. 주문 처리는 계속할 수 있으니 먼저 완료하거나 취소해
-            주세요. 고객정보와 상세내용을 추가로 정리하지 않습니다.
-          </div>
-        ) : closure ? (
-          <>
-            <p>
-              오늘 영업이 종료되었습니다. 고객정보와 주문 상세가 안전하게
-              정리되었으며 정산 기록은 보존되었습니다.
-            </p>
-            <dl>
-              <div>
-                <dt>정리된 주문 상세 수</dt>
-                <dd>{closure.cleaned_order_count}건</dd>
-              </div>
-              <div>
-                <dt>영업 종료 시각</dt>
-                <dd>{new Date(`${closure.closed_at}Z`).toLocaleString("ko-KR")}</dd>
-              </div>
-            </dl>
-          </>
-        ) : (
-          <>
-            <p>
-              {activeOrderCount === null
-                ? "진행 중인 주문을 확인하고 있습니다."
-                : activeOrderCount > 0
-                  ? `진행 중인 주문 ${activeOrderCount}건을 먼저 완료하거나 취소해 주세요.`
-                  : "모든 주문 처리를 확인했습니다. 오늘 주문의 개인정보를 정리할 수 있습니다."}
-            </p>
-            <button
-              className="business-close-open"
-              disabled={activeOrderCount !== 0}
-              onClick={() => activeOrderCount === 0 && setCloseModal(true)}
-            >
-              오늘 영업 종료
-            </button>
-          </>
-        )}
-      </section>
-      {closeModal && (
-        <div className="modal-backdrop" onClick={() => !closeBusy && setCloseModal(false)}>
-          <div className="business-close-modal" onClick={(event) => event.stopPropagation()}>
-            <span className="auth-kicker">DAILY CLOSE</span>
-            <h2>오늘 영업을 종료할까요?</h2>
-            <p>
-              오늘 영업을 종료하면 새로운 주문 접수가 중지되고 오늘 주문의
-              고객정보와 상세내용이 비식별 정리됩니다. 주문 번호, 금액, 상태와
-              결제·환불·정산 기록은 보존됩니다. 정리된 상세정보는 화면에서
-              복구할 수 없습니다.
-            </p>
-            {closeError && <div className="business-close-error">{closeError}</div>}
-            <button
-              className="business-close-confirm"
-              disabled={
-                activeOrderCount !== 0 ||
-                !canConfirmBusinessClose(closeCountdown, closeBusy)
-              }
-              onClick={closeBusiness}
-            >
-              {closeBusy
-                ? "처리 중..."
-                : closeCountdown > 0
-                  ? `${closeCountdown}초 후 실행 가능`
-                  : "영업 종료 및 주문 상세 정리"}
-            </button>
-            <button
-              className="modal-cancel"
-              disabled={closeBusy}
-              onClick={() => setCloseModal(false)}
-            >
-              취소
-            </button>
-          </div>
-        </div>
-      )}
+      <div className={`business-status-note ${closure?.is_closed === 1 ? "closed" : "open"}`}>
+        영업 상태: {closure?.is_closed === 1 ? "영업 종료" : "영업 중"} · 종료와 재개는 설정 탭에서 관리합니다.
+      </div>
       {paymentOrder && (
         <div className="modal-backdrop" onClick={() => setPaymentOrder(null)}>
           <div className="payment-modal" onClick={(e) => e.stopPropagation()}>
@@ -2984,19 +3097,11 @@ function OrderPanel({ orders, setOrders, data, setData }) {
     cancelled: "취소",
     refunded: "환불 완료",
   };
-  const notify = () => {
-    "Notification" in window
-      ? Notification.requestPermission()
-      : alert("이 브라우저는 시스템 알림을 지원하지 않습니다.");
-  };
   return (
     <InfoPanel
       title="주문 관리"
       subtitle="새 주문은 약 2초 안에 자동으로 열리고 알림음이 재생돼요."
     >
-      <button className="notify-btn" onClick={notify}>
-        <Sparkles size={14} /> 화면 밖에서도 새 주문 알림 받기
-      </button>
       <div className="stats">
         <Stat
           value={String(
@@ -3374,7 +3479,7 @@ function ItemEditor({
                   }
                 />
                 <span>{ingredient.name}</span>
-                <small>{ingredient.available ? "재고 있음" : "소진"}</small>
+                <small>{ingredientAvailabilityStatus(ingredient)}</small>
               </label>
             ))}
           </div>
@@ -3615,8 +3720,38 @@ function ProfileMenu({ user, onLogout, compact = false }) {
     </div>
   );
 }
+function SellerHelpModal({ onClose }) {
+  const closeRef = useRef(null);
+  useEffect(() => {
+    closeRef.current?.focus();
+    const keydown = (event) => event.key === "Escape" && onClose();
+    document.addEventListener("keydown", keydown);
+    return () => document.removeEventListener("keydown", keydown);
+  }, [onClose]);
+  return (
+    <div className="modal-backdrop help-backdrop" onClick={onClose}>
+      <section className="seller-help-modal" role="dialog" aria-modal="true" aria-labelledby="seller-help-title" onClick={(event) => event.stopPropagation()}>
+        <button ref={closeRef} className="k-close" aria-label="도움말 닫기" onClick={onClose}><X /></button>
+        <span className="auth-kicker">SELLER GUIDE</span>
+        <h2 id="seller-help-title">판매자 도움말</h2>
+        <div className="seller-help-content">
+          <h3>매장 만들기</h3><p>설정에서 매장 이름과 운영 옵션을 정하고 메뉴와 재료를 등록한 뒤 내보내기를 누르세요.</p>
+          <h3>소비자 페이지 공유</h3><p>내보내기 창의 공개 URL, QR, 복사·새 창·모바일 공유 기능을 사용하세요. 관리 화면 주소는 공유하지 마세요.</p>
+          <h3>메뉴·재료 관리</h3><p>재료가 소진되면 연결된 메뉴가 자동 품절됩니다. 가격과 판매 상태를 저장 전에 확인하세요.</p>
+          <h3>주문 처리와 주문번호 1~100</h3><p>대기 주문을 준비 중, 완료, 취소로 처리합니다. 진행 중 주문에는 매장별 1~100 번호가 중복 없이 배정됩니다.</p>
+          <h3>영업 종료와 재개</h3><p>설정 맨 아래에서 진행 주문이 0건일 때 3초 확인 후 마감합니다. 같은 날 재개할 수 있지만 이미 비식별화된 상세는 복원되지 않습니다.</p>
+          <h3>Excel 마감 파일</h3><p>마감 성공 뒤 실제 .xlsx가 자동 다운로드됩니다. 실패하면 설정의 다시 받기를 누르세요.</p>
+          <h3>취소·환불 주의사항</h3><p>결제·환불 기록과 마감 요약은 보존됩니다. 환불 사유와 금액을 확인하고, 정산 자료가 필요한 주문은 임의 삭제하지 마세요.</p>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function ExportModal({ links, onClose }) {
   const [copied, setCopied] = useState(false);
+  const [qrUrl, setQrUrl] = useState("");
+  useEffect(() => { QRCode.toDataURL(links.customer, { width: 320, margin: 2, errorCorrectionLevel: "M" }).then(setQrUrl).catch(() => setQrUrl("")); }, [links.customer]);
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(links.customer);
@@ -3652,6 +3787,7 @@ function ExportModal({ links, onClose }) {
           <code>{links.customer}</code>
           <button onClick={copy}>{copied ? "복사됨" : "주소 복사"}</button>
         </div>
+        {qrUrl && <div className="store-qr"><img src={qrUrl} alt="소비자 주문 사이트 QR 코드" /><button onClick={() => { const a=document.createElement("a");a.href=qrUrl;a.download="GENO-소비자-QR.png";a.click(); }}>QR PNG 다운로드</button></div>}
         <a
           className="open-store"
           href={links.customer}
@@ -3660,6 +3796,7 @@ function ExportModal({ links, onClose }) {
         >
           소비자 사이트 바로 열기 <ChevronRight />
         </a>
+        {navigator.share && <button className="auth-submit" onClick={() => navigator.share({ title: "GENO 소비자 주문 사이트", url: links.customer }).catch(() => {})}>모바일 공유</button>}
         <button className="auth-submit" onClick={onClose}>
           완료
         </button>

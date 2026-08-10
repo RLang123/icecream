@@ -60,6 +60,12 @@ import {
 } from "../worker/menu-availability.js";
 import { PublicContentPage, PUBLIC_CONTENT_PATHS } from "./public-content.jsx";
 import { createClosingXlsx, closingFilename } from "./closing-xlsx.js";
+import {
+  DEFAULT_STORE_HERO_MESSAGE,
+  STORE_HERO_MESSAGE_MAX_LENGTH,
+  normalizeStoreHeroMessage,
+  storeHeroMessage,
+} from "../shared/store-message.js";
 
 const seed = {
   store: {
@@ -613,7 +619,7 @@ function AuthPage({ onAuth }) {
   const [mode, setMode] = useState("login");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [authOpen, setAuthOpen] = useState(false);
+  const [authOpen, setAuthOpen] = useState(() => location.pathname === "/login");
   const [turnstile, setTurnstile] = useState({ enabled: false, siteKey: '' });
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileReset, setTurnstileReset] = useState(0);
@@ -634,6 +640,7 @@ function AuthPage({ onAuth }) {
           turnstileToken,
         }),
       });
+      setAuthOpen(false);
       onAuth(r.user);
     } catch (err) {
       setError(err.message);
@@ -1353,6 +1360,8 @@ function Studio({ user, onLogout }) {
   const dataRef = useRef(data);
   const sectionRef = useRef(section);
   const refreshOrdersRef = useRef(() => {});
+  const saveTimerRef = useRef(null);
+  const suppressNextAutoSaveRef = useRef(false);
   useEffect(() => {
     dataRef.current = data;
   }, [data]);
@@ -1370,15 +1379,19 @@ function Studio({ user, onLogout }) {
   }, []);
   useEffect(() => {
     if (!loaded.current) return;
+    if (suppressNextAutoSaveRef.current) {
+      suppressNextAutoSaveRef.current = false;
+      return;
+    }
     setSaveState("saving");
-    const timer = setTimeout(
+    saveTimerRef.current = setTimeout(
       () =>
         api("/api/project", { method: "PUT", body: JSON.stringify({ data, inventoryVersion: inventoryVersionRef.current }) })
           .then((r) => { inventoryVersionRef.current = Number(r.inventoryVersion || inventoryVersionRef.current); setSaveState("saved"); })
           .catch(() => setSaveState("error")),
       700,
     );
-    return () => clearTimeout(timer);
+    return () => clearTimeout(saveTimerRef.current);
   }, [data]);
   const ringPendingOrders = async () => {
     if (!alertTrackerRef.current.size) return false;
@@ -1577,6 +1590,23 @@ function Studio({ user, onLogout }) {
   }, []);
   const updateStore = (patch) =>
     setData((d) => ({ ...d, store: { ...d.store, ...patch } }));
+  const saveProjectNow = async (nextData = dataRef.current, suppressAutoSave = false) => {
+    clearTimeout(saveTimerRef.current);
+    if (suppressAutoSave) suppressNextAutoSaveRef.current = true;
+    setSaveState("saving");
+    try {
+      const saved = await api("/api/project", {
+        method: "PUT",
+        body: JSON.stringify({ data: nextData, inventoryVersion: inventoryVersionRef.current }),
+      });
+      inventoryVersionRef.current = Number(saved.inventoryVersion || inventoryVersionRef.current);
+      setSaveState("saved");
+      return saved;
+    } catch (error) {
+      setSaveState("error");
+      throw error;
+    }
+  };
   const exportSites = async () => {
     try {
       if (!data.items.length)
@@ -1778,6 +1808,7 @@ function Studio({ user, onLogout }) {
           setOrders={setOrders}
           refreshOrders={() => refreshOrdersRef.current()}
           acknowledgeOrder={acknowledgeOrder}
+          saveProjectNow={saveProjectNow}
         />
         <section className="preview-area">
           <div className="preview-toolbar">
@@ -1868,6 +1899,7 @@ function Panel({
   setOrders,
   refreshOrders,
   acknowledgeOrder,
+  saveProjectNow,
 }) {
   const [editId, setEditId] = useState(null);
   const [newCategory, setNewCategory] = useState("");
@@ -2063,7 +2095,7 @@ function Panel({
     return <SoundPanel data={data} updateStore={updateStore} />;
   if (section === "settings")
     return (
-      <SettingsPanel data={data} setData={setData} updateStore={updateStore} refreshOrders={refreshOrders} />
+      <SettingsPanel data={data} setData={setData} updateStore={updateStore} refreshOrders={refreshOrders} saveProjectNow={saveProjectNow} />
     );
   return (
     <div className="control-panel">
@@ -2356,9 +2388,38 @@ function SoundPanel({ data, updateStore }) {
   );
 }
 
-function SettingsPanel({ data, setData, updateStore, refreshOrders }) {
+function SettingsPanel({ data, setData, updateStore, refreshOrders, saveProjectNow }) {
   const [department, setDepartment] = useState("");
+  const [heroSaveStatus, setHeroSaveStatus] = useState("idle");
+  const [heroSaveError, setHeroSaveError] = useState("");
   const departments = data.store.departments || [];
+  const heroMessage = data.store.heroMessage ?? DEFAULT_STORE_HERO_MESSAGE;
+  const heroLength = [...heroMessage].length;
+  const saveHeroMessage = async (value = heroMessage) => {
+    const normalized = normalizeStoreHeroMessage(value);
+    if (!normalized) {
+      setHeroSaveStatus("error");
+      setHeroSaveError("대표 문구를 입력해 주세요.");
+      return;
+    }
+    if ([...normalized].length > STORE_HERO_MESSAGE_MAX_LENGTH) {
+      setHeroSaveStatus("error");
+      setHeroSaveError(`대표 문구는 ${STORE_HERO_MESSAGE_MAX_LENGTH}자 이하로 입력해 주세요.`);
+      return;
+    }
+    const nextData = { ...data, store: { ...data.store, heroMessage: normalized } };
+    const needsStateUpdate = heroMessage !== normalized;
+    if (needsStateUpdate) setData(nextData);
+    setHeroSaveStatus("saving");
+    setHeroSaveError("");
+    try {
+      await saveProjectNow(nextData, needsStateUpdate);
+      setHeroSaveStatus("saved");
+    } catch (error) {
+      setHeroSaveStatus("error");
+      setHeroSaveError(error.message || "대표 문구를 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    }
+  };
   const add = () => {
     const name = department.trim();
     if (!name || departments.includes(name)) return;
@@ -2382,6 +2443,40 @@ function SettingsPanel({ data, setData, updateStore, refreshOrders }) {
           onChange={(e) => updateStore({ tagline: e.target.value })}
         />
       </Field>
+      <div className="hero-message-editor">
+        <label className="field">
+          <span>소비자 페이지 대표 문구</span>
+          <textarea
+            value={heroMessage}
+            maxLength={STORE_HERO_MESSAGE_MAX_LENGTH}
+            onChange={(event) => {
+              updateStore({ heroMessage: event.target.value });
+              setHeroSaveStatus("idle");
+              setHeroSaveError("");
+            }}
+            aria-describedby="hero-message-help hero-message-status"
+          />
+        </label>
+        <div className="hero-message-meta" id="hero-message-help">
+          <span>입력 즉시 미리보기에 반영돼요.</span>
+          <b>{heroLength}/{STORE_HERO_MESSAGE_MAX_LENGTH}자</b>
+        </div>
+        <div className="hero-message-actions">
+          <button type="button" className="btn secondary" onClick={() => {
+            updateStore({ heroMessage: DEFAULT_STORE_HERO_MESSAGE });
+            setHeroSaveStatus("idle");
+            setHeroSaveError("");
+          }}>기본 문구로 되돌리기</button>
+          <button type="button" className="btn primary" disabled={heroSaveStatus === "saving" || !normalizeStoreHeroMessage(heroMessage)} onClick={() => saveHeroMessage()}>
+            {heroSaveStatus === "saving" ? "저장 중…" : "대표 문구 저장"}
+          </button>
+        </div>
+        <p id="hero-message-status" className={`hero-message-status ${heroSaveStatus}`} role="status" aria-live="polite">
+          {heroSaveStatus === "saving" && "매장 대표 문구를 저장하고 있어요."}
+          {heroSaveStatus === "saved" && "대표 문구를 저장했어요. 소비자 페이지에도 반영됩니다."}
+          {heroSaveStatus === "error" && heroSaveError}
+        </p>
+      </div>
       <Field label="기본 샷 1회 가격">
         <input
           type="number"
@@ -3981,12 +4076,7 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
           <section className="hero">
             <div>
               <span>{t.heroTop}</span>
-              <h1>
-                {t.heroA}
-                <br />
-                <em>{t.heroB}</em>
-                {t.heroC}
-              </h1>
+              <h1>{storeHeroMessage(data.store.heroMessage)}</h1>
             </div>
             <div className="hero-art">
               🍧<i>✦</i>
@@ -4014,6 +4104,16 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
           <section className="product-grid">
             {visible.map((item) => {
               const availability = getMenuAvailability(item, data.store);
+              const ingredientSummary = (item.ingredientIds || [])
+                .map((id) =>
+                  (data.store.ingredients || []).find(
+                    (ingredient) => String(ingredient.id) === String(id),
+                  )?.name,
+                )
+                .filter(Boolean)
+                .join(" · ");
+              const menuSummary =
+                String(item.desc || "").trim() || ingredientSummary || item.category;
               return (
               <button
                 className={`product ${availability.soldOut ? "is-soldout" : ""}`}
@@ -4045,7 +4145,7 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
                     }
                   </small>
                   <h3>{item.name}</h3>
-                  <p>{item.desc}</p>
+                  <p>{menuSummary}</p>
                   {availability.soldOut && (
                     <p className="soldout-reason">
                       {soldOutReason(availability)}

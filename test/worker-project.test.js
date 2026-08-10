@@ -39,6 +39,7 @@ test("저장 후 다시 불러와도 재료 상태와 메뉴 연결이 유지된
   const data = {
     store: {
       name: "테스트 매장",
+      heroMessage: "  우리 매장의 오늘 추천을 만나보세요!  ",
       ingredients: [{ id: "a", name: "재료 A", available: false }],
     },
     categories: ["전체"],
@@ -66,6 +67,7 @@ test("저장 후 다시 불러와도 재료 상태와 메뉴 연결이 유지된
   assert.equal(result.data.store.ingredients[0].available, false);
   assert.equal(result.data.store.ingredients[0].name, "재료 A");
   assert.deepEqual(result.data.items[0].ingredientIds, ["a"]);
+  assert.equal(result.data.store.heroMessage, "우리 매장의 오늘 추천을 만나보세요!");
 });
 
 test("잘못된 프로젝트 데이터와 고아 재료 참조를 구체적으로 거부한다", () => {

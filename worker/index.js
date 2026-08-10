@@ -1,4 +1,5 @@
 import { getMenuAvailability, normalizeProjectIngredientData, soldOutReason } from './menu-availability.js';
+import { STORE_HERO_MESSAGE_MAX_LENGTH, normalizeStoreHeroMessage } from '../shared/store-message.js';
 
 const json = (data, status = 200, headers = {}) => new Response(JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026'), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control':'no-store', ...headers } });
 const uid = () => crypto.randomUUID();
@@ -127,6 +128,11 @@ export function projectError(data) {
   if (data.items.length > 500) return '메뉴는 최대 500개까지 저장할 수 있습니다.';
   if (!validText(data.store.name, 100, true)) return '매장 이름은 1~100자로 입력해 주세요.';
   if (data.store.tagline !== undefined && !validText(data.store.tagline, 300)) return '매장 소개는 300자 이하로 입력해 주세요.';
+  if (data.store.heroMessage !== undefined) {
+    if (typeof data.store.heroMessage !== 'string' || !normalizeStoreHeroMessage(data.store.heroMessage)) return '소비자 페이지 대표 문구를 입력해 주세요.';
+    if ([...normalizeStoreHeroMessage(data.store.heroMessage)].length > STORE_HERO_MESSAGE_MAX_LENGTH) return `소비자 페이지 대표 문구는 ${STORE_HERO_MESSAGE_MAX_LENGTH}자 이하로 입력해 주세요.`;
+    data.store.heroMessage = normalizeStoreHeroMessage(data.store.heroMessage);
+  }
   if (data.store.departments !== undefined && (!Array.isArray(data.store.departments) || data.store.departments.length > 100 || data.store.departments.some(v => !validText(v, 50, true)))) return '부서 목록은 100개 이하, 각 이름은 1~50자로 입력해 주세요.';
   const categories = new Set();
   for (const category of data.categories) {

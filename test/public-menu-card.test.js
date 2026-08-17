@@ -7,7 +7,8 @@ const responsive = await readFile(new URL("../src/responsive.css", import.meta.u
 
 test("소비자 메뉴 카드는 API의 이름·가격·설명 또는 재료 정보를 유지한다", () => {
   assert.match(main, /<h3>\{item\.name\}<\/h3>/);
-  assert.match(main, /<strong>\{won\(item\.largePrice \?\? item\.price\)\}<\/strong>/);
+  assert.match(main, /<strong>\{won\(menuDisplayPrice\(item\)\)\}<\/strong>/);
+  assert.match(main, /item\?\.sizesEnabled === false \? item\?\.price/);
   assert.match(main, /String\(item\.desc \|\| ""\)\.trim\(\) \|\| ingredientSummary \|\| item\.category/);
   assert.match(main, /<p>\{menuSummary\}<\/p>/);
   assert.match(main, /item\.badge && <b>\{item\.badge\}<\/b>/);

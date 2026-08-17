@@ -14,9 +14,10 @@ test("첫 포인터·키보드 입력은 AudioContext를 활성화하고 설정�
   assert.match(main,/localStorage\.getItem\("geno-order-alert-enabled"\)/);
 });
 
-test("새 주문 반복 알림은 단일 타이머이며 주문 확인·준비·완료에서 정지한다",()=>{
-  assert.match(main,/alertTimerRef\.current = window\.setInterval/);
-  assert.match(main,/if \(alertTimerRef\.current \|\| !alertTrackerRef\.current\.size\) return/);
+test("새 주문 알림은 주문당 한 번만 재생되고 반복 타이머를 만들지 않는다",()=>{
+  assert.doesNotMatch(main,/alertTimerRef\.current = window\.setInterval/);
+  assert.doesNotMatch(main,/ensureAlertTimer/);
+  assert.match(main,/playAlertRef\.current\(\)/);
   assert.match(main,/onClick=\{\(\) => acknowledgeOrder\?\.\(o\.id\)\}/);
   assert.match(main,/const update = async \(id, status, extra = \{\}\) => \{\s*acknowledgeOrder\?\.\(id\)/);
   assert.match(main,/알림 확인/);

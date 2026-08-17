@@ -12,14 +12,12 @@ import {
   Eye,
   LayoutGrid,
   Minus,
-  Monitor,
   MoreHorizontal,
   Package,
   Plus,
   Search,
   Settings,
   ShoppingBag,
-  Smartphone,
   Sparkles,
   Store,
   Trash2,
@@ -40,6 +38,8 @@ import "./preview-features.css";
 import "./inventory.css";
 import "./responsive.css";
 import "./order-alert.css";
+import "./seller-simplified.css";
+import "./senior-ui.css";
 import {
   orderListChange,
   orderPollDelay,
@@ -145,6 +145,8 @@ const seed = {
 };
 
 const won = (n) => `${n.toLocaleString("ko-KR")}원`;
+const menuDisplayPrice = (item) =>
+  Number(item?.sizesEnabled === false ? item?.price : (item?.largePrice ?? item?.price)) || 0;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const compressImage = (file, maxDimension = 720, maxBytes = 50000) =>
   new Promise((resolve, reject) => {
@@ -1331,8 +1333,7 @@ function CustomerPage() {
 
 function Studio({ user, onLogout }) {
   const [data, setData] = useState(() => clone(seed));
-  const [section, setSection] = useState("design");
-  const [device, setDevice] = useState("tablet");
+  const [section, setSection] = useState("simple");
   const [published, setPublished] = useState(false);
   const [customer, setCustomer] = useState(false);
   const [orders, setOrders] = useState([]);
@@ -1355,7 +1356,6 @@ function Studio({ user, onLogout }) {
   const audioReadyRef = useRef(false);
   const seenOrderIdsRef = useRef(new Set());
   const alertTrackerRef = useRef(createOrderAlertTracker());
-  const alertTimerRef = useRef(null);
   const playAlertRef = useRef(async () => false);
   const dataRef = useRef(data);
   const sectionRef = useRef(section);
@@ -1405,21 +1405,10 @@ function Studio({ user, onLogout }) {
     return played;
   };
   playAlertRef.current = ringPendingOrders;
-  const ensureAlertTimer = () => {
-    if (alertTimerRef.current || !alertTrackerRef.current.size) return;
-    alertTimerRef.current = window.setInterval(
-      () => playAlertRef.current(),
-      12000,
-    );
-  };
   const acknowledgeOrder = (id) => {
     const remaining = alertTrackerRef.current.acknowledge(id);
     setPendingAlertCount(remaining);
-    if (!remaining && alertTimerRef.current) {
-      clearInterval(alertTimerRef.current);
-      alertTimerRef.current = null;
-      setAudioBlocked(false);
-    }
+    if (!remaining) setAudioBlocked(false);
   };
   const activateAudio = async () => {
     if (audioReadyRef.current) return true;
@@ -1449,7 +1438,6 @@ function Studio({ user, onLogout }) {
     return () => {
       document.removeEventListener("pointerdown", unlock);
       document.removeEventListener("keydown", unlock);
-      if (alertTimerRef.current) clearInterval(alertTimerRef.current);
     };
   }, []);
   useEffect(() => {
@@ -1482,7 +1470,15 @@ function Studio({ user, onLogout }) {
         if (alertTrackerRef.current.start(detection.added)) {
           setPendingAlertCount(alertTrackerRef.current.size);
           playAlertRef.current();
-          ensureAlertTimer();
+          if (dataRef.current.store.voiceOrderAnnouncements && "speechSynthesis" in window) {
+            const fresh = list.filter((order) => detection.added.includes(order.id));
+            const message = fresh.map((order) => `${order.items.map((item) => `${item.name} ${item.size === "NONE" ? "" : item.size} ${item.qty}개`).join(", ")}`).join(". ");
+            const utterance = new SpeechSynthesisUtterance(`새 주문입니다. ${message}`);
+            utterance.lang = "ko-KR";
+            utterance.rate = 0.85;
+            speechSynthesis.cancel();
+            speechSynthesis.speak(utterance);
+          }
         }
         if ("Notification" in window && Notification.permission === "granted")
           new Notification("새 주문이 도착했어요", {
@@ -1694,16 +1690,15 @@ function Studio({ user, onLogout }) {
                 ? "저장 실패 · 연결 확인"
                 : "서버에 안전하게 저장됨"}
           </span>
-          <button className="icon-btn desktop-action" aria-label="프로젝트 파일 다운로드" onClick={exportData} title="내보내기">
-            <Download size={18} />
+          <button className="btn secondary desktop-action" aria-label="프로젝트 파일 저장" onClick={exportData}>
+            <Download size={18} /> 파일 저장
           </button>
           <button
-            className="icon-btn desktop-action"
-            aria-label="프로젝트 파일 가져오기"
+            className="btn secondary desktop-action"
+            aria-label="프로젝트 파일 불러오기"
             onClick={() => fileRef.current.click()}
-            title="가져오기"
           >
-            <Upload size={18} />
+            <Upload size={18} /> 파일 불러오기
           </button>
           <input
             ref={fileRef}
@@ -1713,10 +1708,10 @@ function Studio({ user, onLogout }) {
             onChange={importData}
           />
           <button className="btn secondary desktop-action" aria-label="고객 화면 미리보기" onClick={() => setCustomer(true)}>
-            <Eye size={17} /> 미리보기
+            <Eye size={17} /> 고객 화면 보기
           </button>
           <button className="btn primary desktop-action" aria-label="매장 내보내기" onClick={exportSites}>
-            <Download size={16} /> 내보내기
+            <Download size={16} /> 주문 주소 만들기
           </button>
           <ProfileMenu user={user} onLogout={onLogout} />
           <div className="mobile-header-menu">
@@ -1734,6 +1729,12 @@ function Studio({ user, onLogout }) {
       </header>
       <aside className="sidebar">
         <nav>
+          <Nav
+            icon={Store}
+            label="간편 운영"
+            active={section === "simple"}
+            onClick={() => setSection("simple")}
+          />
           <Nav
             icon={LayoutGrid}
             label="디자인"
@@ -1809,42 +1810,17 @@ function Studio({ user, onLogout }) {
           refreshOrders={() => refreshOrdersRef.current()}
           acknowledgeOrder={acknowledgeOrder}
           saveProjectNow={saveProjectNow}
+          audioReady={audioReady}
+          storeSlug={storeSlug}
         />
-        <section className="preview-area">
-          <div className="preview-toolbar">
-            <div>
-              <b>실시간 미리보기</b>
-              <span>변경사항이 바로 반영돼요</span>
-            </div>
-            <div className="device-toggle">
-              <button
-                className={device === "phone" ? "on" : ""}
-                onClick={() => setDevice("phone")}
-              >
-                <Smartphone size={16} />
-              </button>
-              <button
-                className={device === "tablet" ? "on" : ""}
-                onClick={() => setDevice("tablet")}
-              >
-                <Monitor size={17} />
-              </button>
-            </div>
-          </div>
-          <div className={`device-stage ${device}`}>
-            <div className="device-shell">
-              <Kiosk data={data} embedded />
-            </div>
-          </div>
-        </section>
       </main>
       <div className={`order-alert-status ${audioBlocked ? "blocked" : audioReady ? "ready" : "waiting"}`} role={audioBlocked ? "alert" : "status"}>
         <span>{audioBlocked && pendingAlertCount ? `새 주문 ${pendingAlertCount}건 · 소리 재생이 차단됐습니다` : audioReady ? "주문 알림 켜짐" : "화면을 한 번 눌러 주문 알림을 켜주세요"}</span>
         <button aria-label="알림 소리 테스트" onClick={async () => { await activateAudio(); const played = await playNotificationSound(dataRef.current.store, audioRef); setAudioBlocked(!played); }}>알림 소리 테스트</button>
       </div>
       <nav className="mobile-bottom-nav" aria-label="판매자 주요 메뉴">
+        <Nav icon={Store} label="간편" active={section === "simple"} onClick={() => selectSection("simple")} />
         <Nav icon={Coffee} label="메뉴" active={section === "menu"} onClick={() => selectSection("menu")} />
-        <Nav icon={Package} label="재료" active={section === "ingredients"} onClick={() => selectSection("ingredients")} />
         <Nav icon={ShoppingBag} label="주문" active={section === "orders"} onClick={() => selectSection("orders")} />
         <Nav icon={BarChart3} label="분석" active={section === "analytics"} onClick={() => selectSection("analytics")} />
         <button className={mobileMoreOpen ? "active" : ""} aria-label="판매자 메뉴 더보기" aria-expanded={mobileMoreOpen} onClick={() => setMobileMoreOpen((open) => !open)}><MoreHorizontal size={21} /><span>더보기</span></button>
@@ -1900,9 +1876,12 @@ function Panel({
   refreshOrders,
   acknowledgeOrder,
   saveProjectNow,
+  audioReady,
+  storeSlug,
 }) {
   const [editId, setEditId] = useState(null);
   const [newCategory, setNewCategory] = useState("");
+  if (section === "simple") return <SimpleSellerPanel orders={orders} setOrders={setOrders} data={data} setData={setData} updateStore={updateStore} refreshOrders={refreshOrders} audioReady={audioReady} storeSlug={storeSlug} />;
   if (section === "menu") {
     const addCategory = () => {
       const name = newCategory.trim();
@@ -2184,15 +2163,22 @@ function Panel({
 }
 
 function InfoPanel({ title, subtitle, children }) {
+  const help = {
+    "주문 관리": ["새 주문 내용을 확인하세요.", "준비 시작을 누르세요.", "상품 전달 후 판매완료를 누르세요."],
+    "메뉴 관리": ["메뉴를 눌러 가격과 옵션을 고치세요.", "판매할 수 없으면 품절 설정을 누르세요.", "변경 내용은 자동 저장됩니다."],
+    "재료·재고 관리": ["재료 이름과 판매 가능 상태를 확인하세요.", "없는 재료는 품절로 바꾸세요.", "연결된 메뉴가 자동으로 품절됩니다."],
+    "프로젝트 설정": ["매장 이름과 주문 옵션을 확인하세요.", "변경한 내용이 저장됐는지 확인하세요.", "영업 종료는 모든 주문 처리 후 누르세요."],
+  }[title];
   return (
     <div className="control-panel">
       <div className="panel-heading">
         <div>
-          <span>관리</span>
+          <span>현재 화면</span>
           <h1>{title}</h1>
         </div>
       </div>
       <p className="panel-copy">{subtitle}</p>
+      {help && <details className="context-help"><summary>이 화면 사용 방법</summary><StepHelp steps={help} /></details>}
       {children}
     </div>
   );
@@ -2704,6 +2690,34 @@ function IngredientPanel({ data, setData }) {
     </InfoPanel>
   );
 }
+function SimpleSellerPanel({ orders, setOrders, data, setData, updateStore, refreshOrders, audioReady, storeSlug }) {
+  const [business, setBusiness] = useState(null);
+  const active = orders.filter((order) => ["new", "preparing"].includes(order.status));
+  useEffect(() => { api("/api/business-close").then(setBusiness).catch(() => setBusiness(null)); }, []);
+  const status = async (order, next) => {
+    const extra = next === "completed" ? { paymentMethod: "prepaid" } : {};
+    try { await api(`/api/orders/${order.id}`, { method: "PATCH", body: JSON.stringify({ status: next, ...extra }) }); setOrders((list) => list.map((item) => item.id === order.id ? { ...item, status: next, last_change_summary: next === "preparing" ? "준비 시작" : "판매 완료 처리", last_change_at: new Date().toISOString() } : item)); refreshOrders?.(); } catch (error) { alert(error.message); }
+  };
+  const toggleSoldout = (id) => setData((current) => ({ ...current, items: current.items.map((item) => String(item.id) === String(id) ? { ...item, soldout: !item.soldout } : item) }));
+  const checks = [
+    [audioReady, "주문 알림 소리", audioReady ? "정상" : "화면을 한 번 눌러 켜세요"],
+    [business?.closed === false, "영업 상태", business?.closed === false ? "영업 중" : business ? "영업 종료" : "확인 중"],
+    [Boolean(storeSlug), "고객 주문 주소", storeSlug ? "사용 가능" : "주문 주소 만들기 필요"],
+    [!data.items.some((item) => isMenuSoldOut(item, data.store)), "품절 메뉴", `${data.items.filter((item) => isMenuSoldOut(item, data.store)).length}개`],
+  ];
+  return <InfoPanel title="오늘의 간편 운영" subtitle="새 주문 처리와 품절 관리에 필요한 기능만 모았습니다.">
+    <StepHelp title="이 화면에서 할 일" steps={["영업 시작 점검에서 빨간 항목을 확인하세요.", "새 주문이 오면 준비 시작을 누르세요.", "상품 전달 후 판매 완료를 누르세요."]} />
+    <section className="opening-check"><h2>영업 시작 점검</h2><div>{checks.map(([ok, label, detail]) => <article className={ok ? "ok" : "check"} key={label}><span>{ok ? "✓" : "!"}</span><b>{label}</b><small>{detail}</small></article>)}</div></section>
+    <label className="voice-order-setting"><input type="checkbox" checked={Boolean(data.store.voiceOrderAnnouncements)} onChange={(event) => updateStore({ voiceOrderAnnouncements: event.target.checked })} /><span><b>새 주문 내용을 음성으로 읽기</b><small>예: “바닐라 라지 2개”</small></span></label>
+    <section className="simple-orders"><h2>진행 중 주문 <b>{active.length}건</b></h2>{active.length ? active.map((order) => <article key={order.id} className={order.status === "new" ? "new" : "preparing"}><header><strong>주문 {numericOrderNumber(order)}번</strong><span>{order.status === "new" ? "새 주문" : "준비 중"}</span></header>{order.items.map((item, index) => <p key={`${item.id}-${index}`}>{item.name} <b>{item.size === "NONE" ? "" : item.size}</b> × {item.qty}</p>)}<div><b>{won(order.total)}</b>{order.status === "new" ? <button onClick={() => status(order, "preparing")}>준비 시작</button> : <button onClick={() => status(order, "completed")}>판매 완료</button>}</div></article>) : <div className="empty-card"><Check /><b>진행 중인 주문이 없습니다</b><p>새 주문이 들어오면 이곳에 크게 표시됩니다.</p></div>}</section>
+    <section className="quick-soldout"><h2>빠른 품절 설정</h2>{data.items.map((item) => <button key={item.id} className={item.soldout ? "soldout" : ""} onClick={() => toggleSoldout(item.id)}><span>{item.emoji}</span><b>{item.name}</b><em>{item.soldout ? "품절 해제" : "품절 설정"}</em></button>)}</section>
+  </InfoPanel>;
+}
+
+function StepHelp({ title = "사용 방법", steps }) {
+  return <aside className="step-help"><b>{title}</b><ol>{steps.map((step, index) => <li key={step}><span>{index + 1}</span>{step}</li>)}</ol></aside>;
+}
+
 function MenuPicker({ items, store, onClose, onSelect }) {
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -2728,7 +2742,7 @@ function MenuPicker({ items, store, onClose, onSelect }) {
               <div>
                 <b>{item.name}</b>
                 <small>
-                  {item.category} · {won(item.largePrice ?? item.price)}
+                  {item.category} · {won(menuDisplayPrice(item))}
                 </small>
               </div>
               {isMenuSoldOut(item, store) && <i>SOLD OUT</i>}
@@ -2743,8 +2757,7 @@ function MenuPicker({ items, store, onClose, onSelect }) {
 function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, acknowledgeOrder }) {
   const [paymentOrder, setPaymentOrder] = useState(null);
   const [payment, setPayment] = useState("prepaid");
-  const [editId, setEditId] = useState(null);
-  const [picker, setPicker] = useState(false);
+  const [editingOrder, setEditingOrder] = useState(null);
   const [filter, setFilter] = useState("waiting");
   const [closure, setClosure] = useState(null);
   const [activeOrderCount, setActiveOrderCount] = useState(null);
@@ -2819,6 +2832,8 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, ackn
                   status === "completed"
                     ? new Date().toISOString()
                     : o.completed_at,
+                last_change_summary: status === "preparing" ? "준비 시작" : status === "completed" ? "판매 완료 처리" : status === "cancelled" ? "주문 취소" : o.last_change_summary,
+                last_change_at: new Date().toISOString(),
               }
             : o,
         ),
@@ -2828,6 +2843,10 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, ackn
     } catch (e) {
       alert(e.message);
     }
+  };
+  const undo = async (id) => {
+    try { await api(`/api/orders/${id}`, { method: "PATCH", body: JSON.stringify({ action: "undo" }) }); await refreshOrders?.(); }
+    catch (error) { alert(error.message); }
   };
   const complete = async () => {
     await update(paymentOrder.id, "completed", { paymentMethod: payment });
@@ -2987,13 +3006,8 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, ackn
                 <div key={`${o.id}-${i.id}`}>
                   <span>
                     {i.emoji} {i.name} · {i.temperature || "-"} ·{" "}
-                    {i.size || "-"} · 샷 {i.shots || 0}회 × {i.qty}
+                    <b className="order-size">{i.size === "NONE" ? "사이즈 없음" : (i.size || "-")}</b> · 샷 {i.shots || 0}회 × {i.qty}
                   </span>
-                  {data.items.some((x) => String(x.id) === String(i.id)) && (
-                    <button onClick={() => setPicker(true)}>
-                      메뉴 선택·수정
-                    </button>
-                  )}
                 </div>
               ))}
             </div>
@@ -3024,6 +3038,7 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, ackn
                 )}
               </div>
             )}
+            {o.last_change_summary && <div className="order-change-note"><span>최근 변경: {o.last_change_summary}</span><small>{o.last_change_at ? new Date(`${o.last_change_at.replace?.("Z", "")}Z`).toLocaleString("ko-KR") : ""}</small><button onClick={() => undo(o.id)}>10초 안에 되돌리기</button></div>}
             <div className="order-actions">
               {o.status === "new" && (
                 <button className="acknowledge" onClick={() => acknowledgeOrder?.(o.id)}>
@@ -3033,6 +3048,11 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, ackn
               {o.status === "new" && (
                 <button onClick={() => update(o.id, "preparing")}>
                   준비 시작
+                </button>
+              )}
+              {["new", "preparing"].includes(o.status) && (
+                <button className="edit-order" onClick={() => setEditingOrder(o)}>
+                  주문 수정
                 </button>
               )}
               {["new", "preparing"].includes(o.status) && (
@@ -3131,43 +3151,43 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, ackn
           </div>
         </div>
       )}
-      {picker && (
-        <MenuPicker
-          items={data.items}
-          store={data.store}
-          onClose={() => setPicker(false)}
-          onSelect={(id) => {
-            setPicker(false);
-            setEditId(id);
-          }}
-        />
-      )}
-      {editId && (
-        <ItemEditor
-          item={data.items.find((x) => String(x.id) === String(editId))}
-          categories={data.categories}
-          ingredients={data.store.ingredients || []}
-          onClose={() => setEditId(null)}
-          onChange={(p) =>
-            setData((d) => ({
-              ...d,
-              items: d.items.map((x) =>
-                String(x.id) === String(editId) ? { ...x, ...p } : x,
-              ),
-            }))
-          }
-          onDelete={() => {
-            setData((d) => ({
-              ...d,
-              items: d.items.filter((x) => String(x.id) !== String(editId)),
-            }));
-            setEditId(null);
-          }}
-        />
-      )}
+      {editingOrder && <OrderEditModal order={editingOrder} menus={data.items} onClose={() => setEditingOrder(null)} onSaved={(saved) => { setOrders((list) => list.map((order) => order.id === saved.id ? saved : order)); setEditingOrder(null); refreshOrders?.(); }} />}
     </InfoPanel>
   );
 }
+function OrderEditModal({ order, menus, onClose, onSaved }) {
+  const [items, setItems] = useState(() => order.items.map((item) => ({ ...item })));
+  const [busy, setBusy] = useState(false);
+  const change = (index, patch) => setItems((list) => list.map((item, i) => i === index ? { ...item, ...patch } : item));
+  const selectMenu = (index, id) => {
+    const menu = menus.find((item) => String(item.id) === String(id));
+    if (!menu) return;
+    const sizes = menu.sizesEnabled !== false;
+    const size = sizes ? (items[index].size === "S" ? "S" : "L") : "NONE";
+    const price = sizes ? Number(size === "S" ? (menu.smallPrice ?? menu.price) : (menu.largePrice ?? menu.price)) : Number(menu.price);
+    change(index, { id: menu.id, name: menu.name, emoji: menu.emoji, size, price, temperature: menu.temperatureMode === "none" ? "NONE" : items[index].temperature, shots: 0 });
+  };
+  const save = async () => {
+    setBusy(true);
+    try {
+      const result = await api(`/api/orders/${order.id}`, { method: "PATCH", body: JSON.stringify({ action: "edit", items }) });
+      onSaved({ ...order, items: result.items, total: result.total, last_change_summary: result.summary, last_change_at: new Date().toISOString() });
+    } catch (error) { alert(error.message); } finally { setBusy(false); }
+  };
+  return <div className="modal-backdrop" onClick={onClose}><div className="editor-modal order-edit-modal" onClick={(event) => event.stopPropagation()}>
+    <div className="modal-head"><div><small>EDIT ORDER</small><h2>주문 품목 수정</h2></div><button onClick={onClose}><X /></button></div>
+    <p>판매완료 전까지 메뉴, 사이즈, 수량과 적용 금액을 수정할 수 있습니다.</p>
+    <div className="order-edit-lines">{items.map((item, index) => <div key={`${index}-${item.id}`}>
+      <select aria-label="메뉴" value={item.id} onChange={(event) => selectMenu(index, event.target.value)}>{menus.map((menu) => <option key={menu.id} value={menu.id}>{menu.name}</option>)}</select>
+      <select aria-label="사이즈" value={item.size || "NONE"} onChange={(event) => change(index, { size: event.target.value })}><option value="NONE">사이즈 없음</option><option value="S">S</option><option value="L">L</option></select>
+      <label>수량<input type="number" min="1" max="20" value={item.qty} onChange={(event) => change(index, { qty: Number(event.target.value) })} /></label>
+      <label>금액<input type="number" min="0" max="10000000" step="100" value={item.price} onChange={(event) => change(index, { price: Number(event.target.value) })} /></label>
+    </div>)}</div>
+    <div className="order-edit-total"><span>수정 합계</span><b>{won(items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0))}</b></div>
+    <button className="auth-submit" disabled={busy || !items.length} onClick={save}>{busy ? "저장 중..." : "주문 수정 저장"}</button>
+  </div></div>;
+}
+
 function OrderPanel({ orders, setOrders, data, setData }) {
   const [editId, setEditId] = useState(null);
   const [busy, setBusy] = useState("");
@@ -4151,7 +4171,7 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
                       {soldOutReason(availability)}
                     </p>
                   )}
-                  <strong>{won(item.largePrice ?? item.price)}</strong>
+                  <strong>{won(menuDisplayPrice(item))}</strong>
                 </div>
               </button>
               );
@@ -4182,14 +4202,14 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
             </button>
           </div>
         </>
-      ) : (
+      ) : screen === "cart" ? (
         <CartScreen
           cart={cart}
           setCart={setCart}
           total={total}
           dine={dine}
           back={() => setScreen("menu")}
-          pay={pay}
+          pay={() => setScreen("confirm")}
           paying={paying}
           customerName={customerName}
           setCustomerName={setCustomerName}
@@ -4199,6 +4219,8 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
           t={t}
           unavailableCartItems={unavailableCartItems}
         />
+      ) : (
+        <OrderConfirmScreen cart={cart} total={total} dine={dine} customerName={customerName} department={department} back={() => setScreen("cart")} confirm={pay} paying={paying} />
       )}{" "}
       {selected && (
         <ProductModal
@@ -4211,6 +4233,16 @@ function Kiosk({ data, embedded = false, onExit, onOrder }) {
       )}
     </div>
   );
+}
+function OrderConfirmScreen({ cart, total, dine, customerName, department, back, confirm, paying }) {
+  return <div className="order-confirm-screen">
+    <button className="back" onClick={back}><ArrowLeft /> 주문 내용 수정하기</button>
+    <span className="eyebrow">마지막 확인</span><h1>이대로 주문할까요?</h1>
+    <p className="confirm-warning">메뉴, 크기와 금액을 천천히 확인해 주세요.</p>
+    <div className="confirm-items">{cart.map((item) => <article key={item.cartId}><span>{item.emoji}</span><div><b>{item.name}</b><p>{item.temperature === "NONE" ? "" : item.temperature} {item.size === "NONE" ? "사이즈 없음" : `· ${item.size}`} · {item.qty}개</p></div><strong>{won(item.price * item.qty)}</strong></article>)}</div>
+    <dl className="confirm-details"><div><dt>이용 방법</dt><dd>{dine}</dd></div>{department && <div><dt>부서</dt><dd>{department}</dd></div>}<div><dt>주문자</dt><dd>{customerName || "현장 고객"}</dd></div><div className="total"><dt>총 결제금액</dt><dd>{won(total)}</dd></div></dl>
+    <div className="confirm-actions"><button onClick={back}>아니요, 수정할게요</button><button className="confirm-order" disabled={paying} onClick={confirm}>{paying ? "주문 보내는 중..." : "네, 주문합니다"}</button></div>
+  </div>;
 }
 function ProductModal({ item, ingredients, shotPrice, close, add }) {
   const mode = item.temperatureMode || "both";
@@ -4384,7 +4416,7 @@ function CartScreen({
       </button>
       <div className="cart-layout">
         <section>
-          <span className="eyebrow">YOUR ORDER</span>
+          <span className="eyebrow">주문 확인</span>
           <h1>{t.check}</h1>
           <p>
             {dine} · {cart.reduce((s, x) => s + x.qty, 0)}개

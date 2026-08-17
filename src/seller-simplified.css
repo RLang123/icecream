@@ -1,0 +1,14 @@
+.app .workspace{display:block;background:#fff}
+.app .control-panel{width:100%;height:100%;border-right:0;padding:32px clamp(28px,5vw,72px)}
+.app .preview-area{display:none}
+.order-items .order-size{display:inline-flex;align-items:center;justify-content:center;min-width:34px;padding:3px 8px;border-radius:7px;background:#292622;color:#fff;font-size:13px;line-height:1.2}
+.order-actions>button.edit-order{background:#fff3e8;color:#b94d20;border:1px solid #f2c2a9}
+.order-edit-modal{width:min(680px,calc(100vw - 28px));max-height:calc(100dvh - 28px);overflow:auto}
+.order-edit-modal>p{font-size:12px;color:#777}
+.order-edit-lines{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.order-edit-lines>div{display:grid;grid-template-columns:1.5fr 1fr .7fr 1fr;gap:8px;padding:12px;background:#f7f5f2;border-radius:12px}
+.order-edit-lines select,.order-edit-lines input{width:100%;height:40px;border:1px solid #ddd7d0;border-radius:8px;background:#fff;padding:0 9px}
+.order-edit-lines label{font-size:9px;color:#777}
+.order-edit-total{display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding:14px;border-top:1px solid #e8e2dc}
+.order-edit-total b{font-size:20px}
+@media(max-width:600px){.order-edit-lines>div{grid-template-columns:1fr 1fr}.app .control-panel{padding-inline:15px}}

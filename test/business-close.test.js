@@ -145,8 +145,8 @@ test("마감 API는 본문 seller_id를 무시하고 로그인 판매자 ID만 S
         return statement;
       },
       async batch(batch) {
-        assert.equal(batch.length, 3);
-        return [{ meta: { changes: 1 } }, { meta: { changes: 2 } }, { meta: { changes: 1 } }];
+        assert.equal(batch.length, 4);
+        return [{ meta: { changes: 1 } }, { meta: { changes: 2 } }, { meta: { changes: 2 } }, { meta: { changes: 1 } }];
       },
     },
   };

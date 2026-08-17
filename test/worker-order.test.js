@@ -165,3 +165,11 @@ test("주문 식별자 SQL 인젝션은 판매자 소유권 바인딩 밖으로 
   assert.equal(response.status,400);
   assert.equal(orderQuery,false);
 });
+
+test("판매자는 진행 중 주문의 메뉴·사이즈·수량·금액을 수정하고 합계를 다시 계산한다", async () => {
+  let updated;
+  const env={DB:{prepare(sql){let args=[];return{bind(...values){args=values;return this;},async first(){if(sql.includes('FROM sessions JOIN users'))return{id:'seller-1',email:'seller@test.invalid',name:'판매자',role:'seller'};if(sql.startsWith('SELECT status,items,total'))return{status:'new',items:'[]',total:5000,details_cleaned_at:null};throw new Error(sql);},async run(){if(sql.startsWith('UPDATE orders SET items='))updated=args;else assert.match(sql,/INSERT INTO order_changes/);return{meta:{changes:1}};}};}}};
+  const items=[{id:'snack',name:'과자',emoji:'🍪',temperature:'NONE',size:'S',shots:0,price:1500,qty:2}];
+  const response=await api(new Request('https://example.com/api/orders/order-edit-1',{method:'PATCH',headers:{cookie:'session=edit-order','content-type':'application/json'},body:JSON.stringify({action:'edit',items})}),env,{});
+  assert.equal(response.status,200);const result=await response.json();assert.equal(result.total,3000);assert.equal(updated[1],3000);assert.deepEqual(JSON.parse(updated[0]),result.items);
+});

@@ -30,9 +30,15 @@ test("저장 후 다시 불러와도 재료 상태와 메뉴 연결이 유지된
               savedProject = { data: values[1], slug: values[2], inventory_version: 1 };
               return { meta: { changes: 1 } };
             }
+            if (sql.startsWith("INSERT INTO reserved_store_slugs")) return { meta: { changes: 1 } };
             throw new Error(`Unexpected run query: ${sql}`);
           },
         };
+      },
+      async batch(statements) {
+        const results=[];
+        for (const statement of statements) results.push(await statement.run());
+        return results;
       },
     },
   };
@@ -83,4 +89,12 @@ test("프로젝트 변경 후 공개 매장 API가 최신 데이터를 반환한
   assert.equal((await (await api(request(),env,{})).json()).data.items[0].name,'이전 메뉴');
   name='최신 메뉴';
   const response=await api(request(),env,{});assert.equal(response.headers.get('cache-control'),'public, max-age=5, s-maxage=5, must-revalidate');assert.equal((await response.json()).data.items[0].name,'최신 메뉴');
+});
+
+test("공개 매장 DTO는 재고와 내부 재료 식별자를 노출하지 않는다", async () => {
+  const data={owner_id:'seller-secret',store:{name:'공개 매장',tagline:'소개',ingredients:[{id:'ingredient-secret',name:'우유',stock:7,available:true}],privateSetting:'hidden'},categories:['음료'],items:[{id:'menu-public',name:'라떼',price:4500,category:'음료',ingredientIds:['ingredient-secret']}]};
+  const env={DB:{prepare(){return{bind(){return this;},async first(){return{slug:'store-public1234',data:JSON.stringify(data)};}};}}};
+  const response=await api(new Request('https://example.com/api/store/store-public1234'),env,{});const raw=await response.text();const result=JSON.parse(raw);
+  assert.equal(response.status,200);assert.equal(result.data.store.name,'공개 매장');assert.equal(result.data.items[0].id,'menu-public');assert.equal(result.data.items[0].available,true);
+  for(const forbidden of ['owner_id','seller_id','ingredients','ingredientIds','stock','inventory_version','inventory_request_key','privateSetting'])assert.equal(raw.includes(forbidden),false,forbidden);
 });

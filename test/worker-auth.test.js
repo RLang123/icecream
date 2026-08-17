@@ -89,6 +89,20 @@ test("로그아웃은 쿠키와 서버 세션을 지우고 no-store를 반환한
   assert.equal(queries.filter(sql=>sql.startsWith('DELETE FROM sessions')).length,1);
 });
 
+test("브라우저의 Origin 없는 인증 변경은 거부하고 같은 출처는 허용한다", async () => {
+  let deletes=0;const env={DB:{prepare(){return{bind(){return this;},async run(){deletes+=1;return{meta:{changes:1}};}};}}};
+  const missing=await api(new Request('https://example.com/api/logout',{method:'POST',headers:{cookie:'session=x','sec-fetch-site':'same-origin','sec-fetch-mode':'cors'}}),env,{});
+  assert.equal(missing.status,403);assert.equal(deletes,0);
+  const valid=await api(new Request('https://example.com/api/logout',{method:'POST',headers:{cookie:'session=x',origin:'https://example.com','sec-fetch-site':'same-origin','sec-fetch-mode':'cors'}}),env,{});
+  assert.equal(valid.status,200);assert.equal(deletes,1);
+});
+
+test("다른 출처의 판매자 변경 요청은 인증 조회 전에 차단한다", async () => {
+  let touched=false;const env={DB:{prepare(){touched=true;throw new Error('must not query');}}};
+  const response=await api(new Request('https://example.com/api/project',{method:'PUT',headers:{origin:'https://evil.invalid','sec-fetch-site':'cross-site','content-type':'application/json'},body:'{}'}),env,{});
+  assert.equal(response.status,403);assert.equal(touched,false);
+});
+
 test("인증 JSON 응답은 HTML 실행 문자를 이스케이프한다", async () => {
   const env={DB:{prepare(sql){return{bind(){return this;},async first(){if(sql.includes('FROM sessions JOIN users'))return{id:'seller-1',email:'seller@test.invalid',name:'<script>alert(1)</script>',role:'seller'};throw new Error(sql);}};}}};
   const response=await api(new Request('https://example.com/api/me',{headers:{cookie:'session=xss-session'}}),env,{});

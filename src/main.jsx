@@ -2845,7 +2845,7 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, ackn
     }
   };
   const undo = async (id) => {
-    try { await api(`/api/orders/${id}`, { method: "PATCH", body: JSON.stringify({ action: "undo" }) }); await refreshOrders?.(); }
+    try { await api(`/api/orders/${id}`, { method: "PATCH", body: JSON.stringify({ action: "undo", requestKey: crypto.randomUUID() }) }); await refreshOrders?.(); }
     catch (error) { alert(error.message); }
   };
   const complete = async () => {
@@ -3170,7 +3170,7 @@ function OrderEditModal({ order, menus, onClose, onSaved }) {
   const save = async () => {
     setBusy(true);
     try {
-      const result = await api(`/api/orders/${order.id}`, { method: "PATCH", body: JSON.stringify({ action: "edit", items }) });
+      const result = await api(`/api/orders/${order.id}`, { method: "PATCH", body: JSON.stringify({ action: "edit", items, requestKey: crypto.randomUUID() }) });
       onSaved({ ...order, items: result.items, total: result.total, last_change_summary: result.summary, last_change_at: new Date().toISOString() });
     } catch (error) { alert(error.message); } finally { setBusy(false); }
   };
@@ -3181,7 +3181,7 @@ function OrderEditModal({ order, menus, onClose, onSaved }) {
       <select aria-label="메뉴" value={item.id} onChange={(event) => selectMenu(index, event.target.value)}>{menus.map((menu) => <option key={menu.id} value={menu.id}>{menu.name}</option>)}</select>
       <select aria-label="사이즈" value={item.size || "NONE"} onChange={(event) => change(index, { size: event.target.value })}><option value="NONE">사이즈 없음</option><option value="S">S</option><option value="L">L</option></select>
       <label>수량<input type="number" min="1" max="20" value={item.qty} onChange={(event) => change(index, { qty: Number(event.target.value) })} /></label>
-      <label>금액<input type="number" min="0" max="10000000" step="100" value={item.price} onChange={(event) => change(index, { price: Number(event.target.value) })} /></label>
+      <label>서버 적용 금액<input type="text" value={won(item.price)} readOnly aria-readonly="true" /></label>
     </div>)}</div>
     <div className="order-edit-total"><span>수정 합계</span><b>{won(items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0))}</b></div>
     <button className="auth-submit" disabled={busy || !items.length} onClick={save}>{busy ? "저장 중..." : "주문 수정 저장"}</button>

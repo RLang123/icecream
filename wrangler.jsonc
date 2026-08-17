@@ -14,5 +14,22 @@
       "binding": "DB",
       "database_name": "geno-studio-db"
     }
+  ],
+  "ratelimits": [
+    {
+      "name": "AUTH_RATE_LIMITER",
+      "namespace_id": "24081701",
+      "simple": { "limit": 12, "period": 60 }
+    },
+    {
+      "name": "ORDER_RATE_LIMITER",
+      "namespace_id": "24081702",
+      "simple": { "limit": 240, "period": 60 }
+    },
+    {
+      "name": "SELLER_RATE_LIMITER",
+      "namespace_id": "24081703",
+      "simple": { "limit": 120, "period": 60 }
+    }
   ]
 }

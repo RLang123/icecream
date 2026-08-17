@@ -9,6 +9,14 @@ test("Pages 정적 응답에 기본 보안 헤더가 선언된다", async () => 
   assert.match(headers, /^  Referrer-Policy: strict-origin-when-cross-origin$/m);
   assert.match(headers, /^  X-Frame-Options: SAMEORIGIN$/m);
   assert.match(headers, /^  Permissions-Policy: camera=\(\), microphone=\(\), geolocation=\(\)$/m);
+  assert.match(headers, /^  Content-Security-Policy: /m);
+});
+
+test("Worker는 공개 매장과 판매자 화면에 서로 다른 CSP를 적용한다", async () => {
+  const {default:worker}=await import('../worker/index.js');const env={ASSETS:{fetch:async()=>new Response('<html></html>',{headers:{'content-type':'text/html'}})}};
+  const shop=await worker.fetch(new Request('https://example.com/shop/store-public1234'),env,{});const seller=await worker.fetch(new Request('https://example.com/seller'),env,{});
+  assert.match(shop.headers.get('content-security-policy'),/pagead2\.googlesyndication\.com/);assert.doesNotMatch(seller.headers.get('content-security-policy'),/pagead2\.googlesyndication\.com/);
+  for(const response of [shop,seller]){assert.equal(response.headers.get('x-content-type-options'),'nosniff');assert.equal(response.headers.get('permissions-policy'),'camera=(), microphone=(), geolocation=()');}
 });
 
 test("해시 자산만 immutable이고 HTML 공통 규칙에는 적용되지 않는다", async () => {

@@ -6,10 +6,10 @@ import worker, { api, sellerAccount, sellerAccountError } from "../worker/index.
 import { createClosingXlsx, closingFilename, closingWorkbookRows } from "../src/closing-xlsx.js";
 
 test("계정 이름은 trim+NFKC 후 한글·영문·숫자·허용 기호를 호환 키로 만든다", () => {
-  const composed=sellerAccount({accountName:"  카페Geno_01  "});
-  const decomposed=sellerAccount({accountName:"ㅋㅏㅍㅔGeno_01"});
-  assert.equal(composed.raw,"카페Geno_01");
-  assert.equal(decomposed.raw,"카페Geno_01");
+  const composed=sellerAccount({accountName:"  카페Korsk_01  "});
+  const decomposed=sellerAccount({accountName:"ㅋㅏㅍㅔKorsk_01"});
+  assert.equal(composed.raw,"카페Korsk_01");
+  assert.equal(decomposed.raw,"카페Korsk_01");
   assert.equal(composed.email,decomposed.email);
   assert.equal(sellerAccountError(composed,"password-123"),null);
   assert.match(sellerAccountError(sellerAccount({accountName:"카페 이름!"}),"password-123"),/기호/);
@@ -18,7 +18,7 @@ test("계정 이름은 trim+NFKC 후 한글·영문·숫자·허용 기호를 �
 test("회원가입은 실제 UNIQUE만 409, 형식은 400, DB 실패는 500이다", async () => {
   const request=(accountName)=>new Request("https://example.com/api/register",{method:"POST",headers:{"content-type":"application/json","x-forwarded-for":crypto.randomUUID()},body:JSON.stringify({accountName,password:"password-123"})});
   const uniqueEnv={DB:{prepare(sql){return{bind(){return this;},async first(){return null;},async run(){return{meta:{changes:0}};}};},async batch(){throw new Error("D1_ERROR: UNIQUE constraint failed: users.email");}}};
-  assert.equal((await api(request("한글Geno01"),uniqueEnv,{})).status,409);
+  assert.equal((await api(request("한글Korsk01"),uniqueEnv,{})).status,409);
   const invalidEnv={DB:{prepare(){throw new Error("형식 오류는 DB를 조회하면 안 됨");}}};
   assert.equal((await api(request("잘못 된 이름!"),invalidEnv,{})).status,400);
   const failedEnv={DB:{prepare(sql){return{bind(){return this;},async first(){if(sql.includes("SELECT id FROM users"))return null;throw new Error("db down");},async run(){throw new Error("db down");}};},async batch(){throw new Error("db down");}}};
@@ -34,7 +34,7 @@ test("실제 xlsx ZIP은 3개 시트와 D1 집계 값을 포함하고 민감 필
   const files=unzipSync(bytes);assert.ok(files["xl/worksheets/sheet3.xml"]);
   const all=Object.values(files).map(strFromU8).join(" ");
   for(const forbidden of ["password","session","token","customer_id","seller_id"])assert.doesNotMatch(all,new RegExp(forbidden,"i"));
-  assert.equal(closingFilename("한글/매장","2026-08-09"),"GENO_한글_매장_2026-08-09_영업마감.xlsx");
+  assert.equal(closingFilename("한글/매장","2026-08-09"),"KORSK_한글_매장_2026-08-09_영업마감.xlsx");
 });
 
 test("도움말·QR·공유 UI와 로컬 QR 생성이 연결되어 있다", async () => {

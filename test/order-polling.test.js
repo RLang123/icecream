@@ -5,6 +5,7 @@ import {
   orderPollDelay,
   newlyAddedOrderIds,
   createOrderAlertTracker,
+  createSellerAlertLedger,
   shouldStartOrderPoll,
 } from "../src/order-polling.js";
 
@@ -12,6 +13,26 @@ test("숨겨진 탭과 진행 중 요청에서는 주문 polling을 시작하지
   assert.equal(shouldStartOrderPoll({ hidden: true, inFlight: false }), false);
   assert.equal(shouldStartOrderPoll({ hidden: false, inFlight: true }), false);
   assert.equal(shouldStartOrderPoll({ hidden: false, inFlight: false }), true);
+});
+
+test("알림 기록은 판매자별로 유지되고 새로고침 뒤에도 같은 주문을 다시 알리지 않는다", () => {
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  const sellerA = createSellerAlertLedger(storage, "seller-a");
+  assert.deepEqual(sellerA.claim(["order-1"]), ["order-1"]);
+  assert.deepEqual(sellerA.claim(["order-1"]), []);
+  assert.deepEqual(createSellerAlertLedger(storage, "seller-a").claim(["order-1"]), []);
+  assert.deepEqual(createSellerAlertLedger(storage, "seller-b").claim(["order-1"]), ["order-1"]);
+});
+
+test("알림 기록은 오래된 ID를 정리해 무한히 늘어나지 않는다", () => {
+  const values = new Map();
+  const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  const ledger = createSellerAlertLedger(storage, "seller", 50);
+  ledger.remember(Array.from({ length: 80 }, (_, index) => `order-${index}`));
+  assert.equal(ledger.entries().length, 50);
+  assert.equal(ledger.has("order-0"), false);
+  assert.equal(ledger.has("order-79"), true);
 });
 
 test("활성화 직후 polling 가능하며 정상 간격은 15~30초다", () => {

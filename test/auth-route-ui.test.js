@@ -20,8 +20,8 @@ test("로그인 성공 시 /seller 전환 전에 인증 모달을 닫는다", ()
   );
 });
 
-test("모바일 판매자 헤더 축소 규칙은 로그인 GENO Studio 브랜드에 번지지 않는다", () => {
+test("모바일 판매자 헤더 축소 규칙은 로그인 KORSK 브랜드에 번지지 않는다", () => {
   assert.match(responsive, /\.topbar \.brand>span,\.topbar \.brand>b\{display:none\}/);
   assert.doesNotMatch(responsive, /(?:^|})\.brand>span,\.brand>b\{display:none\}/);
-  assert.match(main, /<span>GENO<\/span>\s*<b>Studio<\/b>/);
+  assert.match(main, /<span>KORSK<\/span>/);
 });

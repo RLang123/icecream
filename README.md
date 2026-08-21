@@ -1,4 +1,4 @@
-# GENO Studio
+# KORSK
 
 React UI, Cloudflare Worker/Pages Function, D1을 사용하는 키오스크 생성기입니다. `/seller`는 판매자용이고 `/shop/{매장주소}`는 공개 주문 화면입니다.
 

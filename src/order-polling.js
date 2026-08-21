@@ -44,3 +44,41 @@ export function createOrderAlertTracker() {
     },
   };
 }
+
+const ALERT_HISTORY_LIMIT = 500;
+
+export function createSellerAlertLedger(storage, sellerId, limit = ALERT_HISTORY_LIMIT) {
+  const safeSellerId = String(sellerId || "anonymous").replace(/[^A-Za-z0-9._:-]/g, "_");
+  const key = `korsk-order-alerted:${safeSellerId}`;
+  const max = Math.max(50, Math.min(2000, Number(limit) || ALERT_HISTORY_LIMIT));
+  const read = () => {
+    try {
+      const parsed = JSON.parse(storage?.getItem(key) || "[]");
+      return Array.isArray(parsed) ? parsed.filter((id) => typeof id === "string" && id).slice(-max) : [];
+    } catch {
+      return [];
+    }
+  };
+  const write = (ids) => {
+    try { storage?.setItem(key, JSON.stringify(ids.slice(-max))); } catch {}
+  };
+  return {
+    key,
+    remember(ids) {
+      const history = read();
+      const known = new Set(history);
+      for (const id of ids || []) if (typeof id === "string" && id && !known.has(id)) { known.add(id); history.push(id); }
+      write(history);
+    },
+    claim(ids) {
+      const history = read();
+      const known = new Set(history);
+      const claimed = [];
+      for (const id of ids || []) if (typeof id === "string" && id && !known.has(id)) { known.add(id); history.push(id); claimed.push(id); }
+      write(history);
+      return claimed;
+    },
+    has(id) { return read().includes(id); },
+    entries() { return read(); },
+  };
+}

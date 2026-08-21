@@ -1,4 +1,4 @@
-import { chromium } from "/tmp/geno-browser/node_modules/playwright/index.mjs";
+import { chromium } from "/home/codespace/.npm/_npx/705bc6b22212b352/node_modules/playwright/index.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -8,7 +8,7 @@ const project={store:{name:"알림 테스트 매장",tagline:"테스트",accent:
 const oldOrder={id:"old-order",display_order_number:1,status:"new",customer_name:"기존 고객",dining_type:"매장",created_at:"2026-08-10 09:00:00",items:[{id:1,name:"라테",emoji:"☕",qty:1,price:5000}],total:5000};
 const newOrder={...oldOrder,id:"new-order",display_order_number:2,customer_name:"신규 고객",created_at:"2026-08-10 10:00:00"};
 await fs.mkdir(outputDir,{recursive:true});
-const browser=await chromium.launch({headless:true,executablePath:"/tmp/geno-playwright/chromium-1187/chrome-linux/chrome",args:["--no-sandbox","--autoplay-policy=user-gesture-required"]});
+const browser=await chromium.launch({headless:true,args:["--no-sandbox","--autoplay-policy=user-gesture-required"]});
 const results=[];
 for(const [width,height] of [[390,844],[1440,900]]){
   const page=await browser.newPage({viewport:{width,height}});let orderReads=0;

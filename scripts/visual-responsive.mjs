@@ -1,4 +1,4 @@
-import { chromium } from "/tmp/geno-browser/node_modules/playwright/index.mjs";
+import { chromium } from "/home/codespace/.npm/_npx/705bc6b22212b352/node_modules/playwright/index.mjs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -6,12 +6,12 @@ const baseURL = process.env.GENO_VISUAL_URL || "http://127.0.0.1:4173/seller";
 const outputDir = path.resolve(process.env.GENO_VISUAL_OUTPUT || "artifacts/responsive");
 const viewports = [[360,800],[390,844],[430,932],[768,1024],[820,1180],[1024,768],[1440,900]];
 const project = {
-  store: { name: "매우 긴 매장 이름 테스트 GENO Mellow Cream 플래그십", tagline: "오늘을 달콤하게 만드는 한 스쿱", accent: "#ff6b35", theme: "cream", radius: 22, ingredients: Array.from({length:8},(_,i)=>({id:`ingredient-${i}`,name:i===0?"유기농 저지방 우유와 아주 긴 재료 이름":"재료 "+(i+1),available:i!==1,...(i===2?{stock:3}:{})})) },
+  store: { name: "매우 긴 매장 이름 테스트 KORSK Mellow Cream 플래그십", tagline: "오늘을 달콤하게 만드는 한 스쿱", accent: "#ff6b35", theme: "cream", radius: 22, ingredients: Array.from({length:8},(_,i)=>({id:`ingredient-${i}`,name:i===0?"유기농 저지방 우유와 아주 긴 재료 이름":"재료 "+(i+1),available:i!==1,...(i===2?{stock:3}:{})})) },
   categories: ["전체","시그니처"],
   items: [{id:1,category:"시그니처",name:"아주 긴 메뉴 이름 피스타치오 클라우드 스페셜",desc:"설명",price:5800,emoji:"🍦",color:"#cddcad",soldout:false,ingredientIds:["ingredient-0"],temperatureMode:"both",shotsEnabled:true,hotShots:true,iceShots:true,sizesEnabled:true,smallPrice:5200,largePrice:5800}]
 };
 await fs.mkdir(outputDir,{recursive:true});
-const browser = await chromium.launch({headless:true,executablePath:"/tmp/geno-playwright/chromium-1187/chrome-linux/chrome",args:["--no-sandbox"]});
+const browser = await chromium.launch({headless:true,args:["--no-sandbox"]});
 const results=[];
 for (const [width,height] of viewports) {
   const page=await browser.newPage({viewport:{width,height}});

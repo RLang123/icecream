@@ -38,5 +38,5 @@ export function createClosingXlsx(closure, orders) {
 
 export function closingFilename(storeName, businessDate) {
   const safe = String(storeName || "매장").normalize("NFKC").replace(/[\\/:*?"<>|]/g, "_").trim().slice(0, 50) || "매장";
-  return `GENO_${safe}_${businessDate}_영업마감.xlsx`;
+  return `KORSK_${safe}_${businessDate}_영업마감.xlsx`;
 }

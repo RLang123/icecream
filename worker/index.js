@@ -122,6 +122,7 @@ async function body(request, maxBytes = 100000) {
 }
 const validId = value => (typeof value === 'string' || typeof value === 'number') && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(String(value));
 const validText = (value, max, required = false) => typeof value === 'string' && value.length <= max && (!required || value.trim().length > 0);
+const validWon = value => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 10000000;
 function pagination(url) {
   const requestedLimit = Number.parseInt(url.searchParams.get('limit') || '50', 10);
   const requestedPage = Number.parseInt(url.searchParams.get('page') || '1', 10);
@@ -142,6 +143,7 @@ export function projectError(data) {
     data.store.heroMessage = normalizeStoreHeroMessage(data.store.heroMessage);
   }
   if (data.store.departments !== undefined && (!Array.isArray(data.store.departments) || data.store.departments.length > 100 || data.store.departments.some(v => !validText(v, 50, true)))) return '부서 목록은 100개 이하, 각 이름은 1~50자로 입력해 주세요.';
+  if (data.store.shotPrice !== undefined && !validWon(data.store.shotPrice)) return '샷 추가 금액은 0~10,000,000 사이 원 단위 정수여야 합니다.';
   const categories = new Set();
   for (const category of data.categories) {
     if (!validText(category, 50, true)) return '카테고리 이름은 1~50자 문자열이어야 합니다.';
@@ -170,8 +172,8 @@ export function projectError(data) {
     ids.add(String(item.id));
     if (!validText(item.name, 100, true)) return `메뉴 "${String(item.id)}"의 이름은 1~100자로 입력해 주세요.`;
     if (item.desc !== undefined && !validText(item.desc, 1000)) return `${item.name}의 설명은 1000자 이하로 입력해 주세요.`;
-    if (!Number.isFinite(Number(item.price)) || Number(item.price) < 0 || Number(item.price) > 10000000) return `${item.name}의 가격은 0~10,000,000 사이여야 합니다.`;
-    for (const key of ['smallPrice', 'largePrice']) if (item[key] !== undefined && (!Number.isFinite(Number(item[key])) || Number(item[key]) < 0 || Number(item[key]) > 10000000)) return `${item.name}의 사이즈 가격을 확인해 주세요.`;
+    if (!validWon(item.price)) return `${item.name}의 가격은 0~10,000,000 사이 원 단위 정수여야 합니다.`;
+    for (const key of ['smallPrice', 'largePrice']) if (item[key] !== undefined && !validWon(item[key])) return `${item.name}의 사이즈 가격은 원 단위 정수로 입력해 주세요.`;
     if (item.soldout !== undefined && typeof item.soldout !== 'boolean') return `${item.name}의 수동 품절 상태는 참/거짓이어야 합니다.`;
     if (item.ingredientIds !== undefined && !Array.isArray(item.ingredientIds)) return `${item.name}의 재료 연결은 배열이어야 합니다.`;
     const refs = new Set();
@@ -247,22 +249,23 @@ export function publicStoreDto(data, slug) {
   return { slug, store, categories:[...(normalized.categories||[])], items:(normalized.items||[]).map(item => publicItem(item,normalized.store)) };
 }
 
-function priceOrderItems(requested, storeData) {
+export function priceOrderItems(requested, storeData) {
   if (!Array.isArray(requested) || !requested.length || requested.length > 30) throw Object.assign(new Error('INVALID_ORDER_ITEMS'),{status:400,publicMessage:'주문 상품을 확인해 주세요.'});
   const menu=storeData.items||[];const items=[];const requiredIngredients=new Map();let total=0;
   for(const line of requested){
-    const product=menu.find(i=>String(i.id)===String(line.id));const qty=Math.floor(Number(line.qty));
+    const product=menu.find(i=>String(i.id)===String(line.id));const qty=line.qty;
     if(!product)throw Object.assign(new Error('MENU_NOT_AVAILABLE'),{status:400,publicMessage:'현재 판매하지 않는 메뉴가 주문에 포함되어 있습니다.'});
     const availability=getMenuAvailability(product,storeData.store);if(availability.soldOut)throw Object.assign(new Error('MENU_SOLD_OUT'),{status:409,publicMessage:`${product.name} 메뉴는 주문할 수 없습니다. ${soldOutReason(availability)}`});
-    if(qty<1||qty>20)throw Object.assign(new Error('INVALID_QUANTITY'),{status:400,publicMessage:'상품 수량을 확인해 주세요.'});
+    if(!Number.isInteger(qty)||qty<1||qty>20)throw Object.assign(new Error('INVALID_QUANTITY'),{status:400,publicMessage:'상품 수량은 1~20 사이 정수로 입력해 주세요.'});
     const ingredientIds=[...new Set(product.ingredientIds||[])].map(String);for(const ingredientId of ingredientIds)requiredIngredients.set(ingredientId,(requiredIngredients.get(ingredientId)||0)+qty);
     const mode=product.temperatureMode||'both';let temperature=String(line.temperature||'');if(mode==='hot')temperature='HOT';if(mode==='ice')temperature='ICE';if(mode==='none')temperature='NONE';if(mode==='both'&&!['HOT','ICE'].includes(temperature))throw Object.assign(new Error('INVALID_TEMPERATURE'),{status:400,publicMessage:`${product.name}의 온도를 선택해 주세요.`});
-    const sizes=product.sizesEnabled!==false;const size=sizes&&(line.size==='S'?'S':'L');const base=sizes?Number(size==='S'?(product.smallPrice??product.price):(product.largePrice??product.price)):Number(product.price);
-    let shots=Math.floor(Number(line.shots||0));if(shots<0||shots>100)throw Object.assign(new Error('INVALID_SHOTS'),{status:400,publicMessage:'샷 횟수를 확인해 주세요.'});const shotAllowed=!!product.shotsEnabled&&temperature!=='NONE'&&(temperature==='HOT'?product.hotShots!==false:temperature==='ICE'?product.iceShots!==false:false);if(!shotAllowed)shots=0;
-    const shotPrice=Math.max(0,Math.round(Number(storeData.store?.shotPrice??500)));const price=Math.max(0,Math.round(base))+shots*shotPrice;if(!Number.isFinite(price))throw Object.assign(new Error('INVALID_PRICE'),{status:400,publicMessage:'상품 가격이 올바르지 않습니다.'});
+    const sizes=product.sizesEnabled!==false;const size=sizes&&(line.size==='S'?'S':'L');const base=sizes?(size==='S'?(product.smallPrice??product.price):(product.largePrice??product.price)):product.price;
+    if(!validWon(base))throw Object.assign(new Error('INVALID_PRICE'),{status:400,publicMessage:`${product.name}의 가격이 원 단위 정수가 아닙니다. 메뉴 가격을 확인해 주세요.`});
+    let shots=line.shots??0;if(!Number.isInteger(shots)||shots<0||shots>100)throw Object.assign(new Error('INVALID_SHOTS'),{status:400,publicMessage:'샷 횟수는 0~100 사이 정수로 입력해 주세요.'});const shotAllowed=!!product.shotsEnabled&&temperature!=='NONE'&&(temperature==='HOT'?product.hotShots!==false:temperature==='ICE'?product.iceShots!==false:false);if(!shotAllowed)shots=0;
+    const shotPrice=storeData.store?.shotPrice??500;if(!validWon(shotPrice))throw Object.assign(new Error('INVALID_PRICE'),{status:400,publicMessage:'샷 추가 금액이 올바르지 않습니다. 설정에서 원 단위 정수로 입력해 주세요.'});const price=base+shots*shotPrice;if(!Number.isSafeInteger(price)||price<0||price>10000000)throw Object.assign(new Error('INVALID_PRICE'),{status:400,publicMessage:'상품 가격이 올바르지 않습니다.'});
     items.push({id:product.id,name:String(product.name).slice(0,80),emoji:String(product.emoji||'').slice(0,8),temperature,size:sizes?size:'NONE',shots,shotPrice,price,qty,ingredientIds});total+=price*qty;
   }
-  if(total<=0||total>10000000)throw Object.assign(new Error('INVALID_TOTAL'),{status:400,publicMessage:'주문 금액을 확인해 주세요.'});
+  if(!Number.isSafeInteger(total)||total<=0||total>10000000)throw Object.assign(new Error('INVALID_TOTAL'),{status:400,publicMessage:'주문 금액을 확인해 주세요.'});
   return {items,total,requiredIngredients};
 }
 
@@ -385,7 +388,7 @@ export async function api(request, env, ctx) {
     if(input.action==='edit'){
       if(!['new','preparing'].includes(order.status)||order.details_cleaned_at)return json({error:'대기 또는 준비 중인 주문만 수정할 수 있습니다.'},409);
       const requestKey=String(input.requestKey||'').trim();if(!/^[a-zA-Z0-9-]{16,80}$/.test(requestKey))return json({error:'주문 수정 요청 번호가 올바르지 않습니다.'},400);
-      const repeated=await env.DB.prepare('SELECT response_json FROM order_change_requests WHERE seller_id=? AND request_key=?').bind(user.id,requestKey).first();if(repeated){let response;try{response=JSON.parse(repeated.response_json)}catch{return json({error:'주문 수정 요청 기록이 손상되었습니다.'},500)}return json({...response,deduplicated:true});}
+      const repeated=await env.DB.prepare('SELECT order_id,response_json FROM order_change_requests WHERE seller_id=? AND request_key=?').bind(user.id,requestKey).first();if(repeated){if(String(repeated.order_id)!==String(id))return json({error:'이미 다른 주문 수정에 사용한 요청 번호입니다. 다시 시도해 주세요.',code:'REQUEST_KEY_REUSED'},409);let response;try{response=JSON.parse(repeated.response_json)}catch{return json({error:'주문 수정 요청 기록이 손상되었습니다.'},500)}return json({...response,deduplicated:true});}
       const project=await env.DB.prepare('SELECT data,inventory_version FROM projects WHERE owner_id=?').bind(user.id).first();if(!project)return json({error:'매장 메뉴를 찾을 수 없습니다.'},404);
       let storeData;try{storeData=normalizeProjectIngredientData(JSON.parse(project.data))}catch{return json({error:'매장 메뉴 데이터가 손상되었습니다.'},500)}
       let priced;try{priced=priceOrderItems(input.items,storeData)}catch(error){if(error?.status)return json({error:error.publicMessage,code:error.message},error.status);throw error}const {items,total,requiredIngredients:newUsage}=priced;let previousItems;try{previousItems=JSON.parse(order.items)}catch{return json({error:'기존 주문 데이터가 손상되었습니다.'},500)}const oldUsage=ingredientUsage(previousItems,storeData);
@@ -396,7 +399,7 @@ export async function api(request, env, ctx) {
       statements.push(env.DB.prepare(`UPDATE orders SET items=?,total=? WHERE id=? AND seller_id=? AND status IN ('new','preparing') AND details_cleaned_at IS NULL AND items=? AND total=? ${inventoryCondition}`).bind(...orderArgs));
       statements.push(env.DB.prepare("INSERT INTO order_changes(id,order_id,seller_id,change_type,summary,before_items,after_items,before_total,after_total) SELECT ?,?,?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM orders WHERE id=? AND seller_id=? AND items=? AND total=?)").bind(changeId,id,user.id,'items',summary,order.items,afterItems,Number(order.total),total,id,user.id,afterItems,total));
       statements.push(env.DB.prepare("INSERT INTO order_change_requests(id,order_id,seller_id,request_key,response_json) VALUES(?,?,?,?,CASE WHEN EXISTS (SELECT 1 FROM order_changes WHERE id=? AND order_id=? AND seller_id=?) THEN ? ELSE NULL END)").bind(requestId,id,user.id,requestKey,changeId,id,user.id,JSON.stringify(response)));
-      let batch;try{batch=await env.DB.batch(statements)}catch(error){if(isUniqueConstraintError(error)){const prior=await env.DB.prepare('SELECT response_json FROM order_change_requests WHERE seller_id=? AND request_key=?').bind(user.id,requestKey).first();if(prior)return json({...JSON.parse(prior.response_json),deduplicated:true});}if(/NOT NULL constraint failed: order_change_requests\.response_json/i.test(String(error?.message||error)))return json({error:'재고 또는 주문이 다른 요청에서 먼저 변경되었습니다. 새로고침 후 다시 시도해 주세요.',code:'ORDER_EDIT_CONFLICT'},409);throw error;}
+      let batch;try{batch=await env.DB.batch(statements)}catch(error){if(isUniqueConstraintError(error)){const prior=await env.DB.prepare('SELECT order_id,response_json FROM order_change_requests WHERE seller_id=? AND request_key=?').bind(user.id,requestKey).first();if(prior&&String(prior.order_id)===String(id))return json({...JSON.parse(prior.response_json),deduplicated:true});if(prior)return json({error:'이미 다른 주문 수정에 사용한 요청 번호입니다. 다시 시도해 주세요.',code:'REQUEST_KEY_REUSED'},409);}if(/NOT NULL constraint failed: order_change_requests\.response_json/i.test(String(error?.message||error)))return json({error:'재고 또는 주문이 다른 요청에서 먼저 변경되었습니다. 새로고침 후 다시 시도해 주세요.',code:'ORDER_EDIT_CONFLICT'},409);throw error;}
       const orderResult=batch[inventoryChanged?1:0];const requestResult=batch[inventoryChanged?3:2];if(!orderResult?.meta?.changes||!requestResult?.meta?.changes)return json({error:'재고 또는 주문이 다른 요청에서 먼저 변경되었습니다. 새로고침 후 다시 시도해 주세요.',code:'ORDER_EDIT_CONFLICT'},409);return json({...response,deduplicated:false});
     }
     if(input.status==='completed'){

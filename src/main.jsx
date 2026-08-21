@@ -45,6 +45,7 @@ import {
   orderPollDelay,
   newlyAddedOrderIds,
   createOrderAlertTracker,
+  createSellerAlertLedger,
   shouldStartOrderPoll,
 } from "./order-polling.js";
 import {
@@ -415,7 +416,7 @@ function PartnershipSection() {
       <div className="partnership-copy">
         <span>PARTNERSHIP</span>
         <h2>
-          GENO Studio와
+          KORSK와
           <br />
           함께 만들고 싶나요?
         </h2>
@@ -432,14 +433,14 @@ function PartnershipSection() {
         </div>
       </div>
       <form className="partnership-form" onSubmit={submit}>
-        <input type="hidden" name="_subject" value="GENO Studio 새 제휴 문의" />
+        <input type="hidden" name="_subject" value="KORSK 새 제휴 문의" />
         <label>
           <span>회사·매장명</span>
           <input
             name="company"
             required
             maxLength="80"
-            placeholder="예: GENO Coffee"
+            placeholder="예: KORSK Coffee"
           />
         </label>
         <label>
@@ -658,8 +659,7 @@ function AuthPage({ onAuth }) {
           <div className="brandmark">
             <Sparkles size={18} />
           </div>
-          <span>GENO</span>
-          <b>Studio</b>
+          <span>KORSK</span>
         </div>
         <div>
           <a href="#features">기능</a>
@@ -679,8 +679,7 @@ function AuthPage({ onAuth }) {
               <div className="brandmark">
                 <Sparkles size={18} />
               </div>
-              <span>GENO</span>
-              <b>Studio</b>
+              <span>KORSK</span>
             </div>
             <span className="auth-live">
               <i /> ALL-IN-ONE KIOSK STUDIO
@@ -719,7 +718,7 @@ function AuthPage({ onAuth }) {
                 <i />
                 <i />
               </span>
-              <b>GENO Seller Studio</b>
+              <b>KORSK 판매자 화면</b>
               <em>
                 <i /> LIVE
               </em>
@@ -887,7 +886,7 @@ function AuthPage({ onAuth }) {
               <div className="brandmark">
                 <Sparkles />
               </div>
-              <span>GENO Studio</span>
+              <span>KORSK</span>
               <small>안전한 판매자 작업실</small>
             </div>
             <SellerAuthForm
@@ -1145,7 +1144,7 @@ function AuthPage({ onAuth }) {
             완료되기까지.
           </h2>
           <p>
-            GENO Studio의 기능이 실제 매장에서 어떻게 이어지는지 보여주는 예시
+            KORSK의 기능이 실제 매장에서 어떻게 이어지는지 보여주는 예시
             시나리오입니다.
           </p>
         </div>
@@ -1257,8 +1256,7 @@ function AuthPage({ onAuth }) {
           <div className="brandmark">
             <Sparkles />
           </div>
-          <span>GENO</span>
-          <b>Studio</b>
+          <span>KORSK</span>
         </div>
         <p>메뉴가 주문이 되고, 주문이 매장의 성장이 되는 곳.</p>
         <nav className="landing-footer-links" aria-label="서비스 정보">
@@ -1356,6 +1354,9 @@ function Studio({ user, onLogout }) {
   const audioReadyRef = useRef(false);
   const seenOrderIdsRef = useRef(new Set());
   const alertTrackerRef = useRef(createOrderAlertTracker());
+  const alertLedgerRef = useRef(null);
+  if (!alertLedgerRef.current)
+    alertLedgerRef.current = createSellerAlertLedger(window.localStorage, user.id);
   const playAlertRef = useRef(async () => false);
   const dataRef = useRef(data);
   const sectionRef = useRef(section);
@@ -1456,7 +1457,7 @@ function Studio({ user, onLogout }) {
     let refreshPending = false;
     let stopped = false;
     let ordersSignature = "";
-    const accept = (list) => {
+    const accept = (list, announce = false) => {
       const detection = newlyAddedOrderIds(
         seenOrderIdsRef.current,
         list,
@@ -1464,14 +1465,19 @@ function Studio({ user, onLogout }) {
       );
       seenOrderIdsRef.current = detection.seen;
       const newest = list[0];
-      if (detection.added.length) {
+      if (!ordersInitialized.current)
+        alertLedgerRef.current.remember(list.map((order) => order?.id).filter(Boolean));
+      const alertIds = announce
+        ? alertLedgerRef.current.claim(detection.added)
+        : [];
+      if (alertIds.length) {
         lastNewAt = Date.now();
         setSection("orders");
-        if (alertTrackerRef.current.start(detection.added)) {
+        if (alertTrackerRef.current.start(alertIds)) {
           setPendingAlertCount(alertTrackerRef.current.size);
           playAlertRef.current();
           if (dataRef.current.store.voiceOrderAnnouncements && "speechSynthesis" in window) {
-            const fresh = list.filter((order) => detection.added.includes(order.id));
+            const fresh = list.filter((order) => alertIds.includes(order.id));
             const message = fresh.map((order) => `${order.items.map((item) => `${item.name} ${item.size === "NONE" ? "" : item.size} ${item.qty}개`).join(", ")}`).join(". ");
             const utterance = new SpeechSynthesisUtterance(`새 주문입니다. ${message}`);
             utterance.lang = "ko-KR";
@@ -1482,7 +1488,7 @@ function Studio({ user, onLogout }) {
         }
         if ("Notification" in window && Notification.permission === "granted")
           new Notification("새 주문이 도착했어요", {
-            body: `${detection.added.length}건의 새 주문을 확인해 주세요.`,
+            body: `${alertIds.length}건의 새 주문을 확인해 주세요.`,
           });
       }
       latestOrderId.current = newest?.id || null;
@@ -1523,7 +1529,7 @@ function Studio({ user, onLogout }) {
         try {
           const result = await api("/api/orders");
           failures = 0;
-          if (accept(result.orders))
+          if (accept(result.orders, true))
             channel?.postMessage({ type: "orders", orders: result.orders });
         } catch (error) {
           failures += 1;
@@ -1547,7 +1553,7 @@ function Studio({ user, onLogout }) {
     channel &&
       (channel.onmessage = (event) => {
         if (event.data?.type === "orders" && Array.isArray(event.data.orders))
-          accept(event.data.orders);
+          accept(event.data.orders, false);
       });
     const heartbeat = setInterval(() => {
       if (leader)
@@ -1673,8 +1679,7 @@ function Studio({ user, onLogout }) {
           <div className="brandmark">
             <Sparkles size={18} />
           </div>
-          <span>GENO</span>
-          <b>Studio</b>
+          <span>KORSK</span>
         </div>
         <div className="project-title">
           <span className="status-dot" />
@@ -2952,7 +2957,7 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, ackn
     a.href = URL.createObjectURL(
       new Blob([csv], { type: "text/csv;charset=utf-8" }),
     );
-    a.download = `GENO-${department || "전체"}-판매내역.csv`;
+    a.download = `KORSK-${department || "전체"}-판매내역.csv`;
     a.click();
   };
   return (
@@ -3002,12 +3007,11 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, ackn
               {o.dining_type}
             </b>
             <div className="order-items">
-              {o.items.map((i) => (
-                <div key={`${o.id}-${i.id}`}>
-                  <span>
-                    {i.emoji} {i.name} · {i.temperature || "-"} ·{" "}
-                    <b className="order-size">{i.size === "NONE" ? "사이즈 없음" : (i.size || "-")}</b> · 샷 {i.shots || 0}회 × {i.qty}
-                  </span>
+              {o.items.map((i, index) => (
+                <div key={`${o.id}-${i.id}-${index}`} className="order-item-line">
+                  <div className="order-item-main"><b>{i.emoji} {i.name}</b><span className="order-size">{i.size === "NONE" ? "사이즈 없음" : (i.size || "-")}</span><strong>× {i.qty}</strong></div>
+                  <div className="order-item-options">{i.temperature === "NONE" ? "온도 선택 없음" : (i.temperature || "온도 없음")} · 샷 {i.shots || 0}회</div>
+                  <div className="order-item-price">{won(i.price)} × {i.qty} = <b>{won(i.price * i.qty)}</b></div>
                 </div>
               ))}
             </div>
@@ -3151,40 +3155,64 @@ function OperationsPanel({ orders, setOrders, data, setData, refreshOrders, ackn
           </div>
         </div>
       )}
-      {editingOrder && <OrderEditModal order={editingOrder} menus={data.items} onClose={() => setEditingOrder(null)} onSaved={(saved) => { setOrders((list) => list.map((order) => order.id === saved.id ? saved : order)); setEditingOrder(null); refreshOrders?.(); }} />}
+      {editingOrder && <OrderEditModal order={editingOrder} menus={data.items} shotPrice={data.store.shotPrice ?? 500} onClose={() => setEditingOrder(null)} onSaved={(saved) => { setOrders((list) => list.map((order) => order.id === saved.id ? saved : order)); setEditingOrder(null); refreshOrders?.(); }} />}
     </InfoPanel>
   );
 }
-function OrderEditModal({ order, menus, onClose, onSaved }) {
+function OrderEditModal({ order, menus, shotPrice, onClose, onSaved }) {
   const [items, setItems] = useState(() => order.items.map((item) => ({ ...item })));
   const [busy, setBusy] = useState(false);
-  const change = (index, patch) => setItems((list) => list.map((item, i) => i === index ? { ...item, ...patch } : item));
+  const [reviewing, setReviewing] = useState(false);
+  const menuFor = (item) => menus.find((menu) => String(menu.id) === String(item.id));
+  const pricedLine = (item) => {
+    const menu = menuFor(item);
+    if (!menu) return { ...item, price: 0 };
+    const sizes = menu.sizesEnabled !== false;
+    const size = sizes ? (item.size === "S" ? "S" : "L") : "NONE";
+    const temperature = menu.temperatureMode === "none" ? "NONE" : item.temperature;
+    const shotsAllowed = menu.shotsEnabled && temperature !== "NONE" && (temperature === "HOT" ? menu.hotShots !== false : temperature === "ICE" && menu.iceShots !== false);
+    const shots = shotsAllowed ? Math.max(0, Math.min(100, Number(item.shots) || 0)) : 0;
+    const base = sizes ? Number(size === "S" ? (menu.smallPrice ?? menu.price) : (menu.largePrice ?? menu.price)) : Number(menu.price);
+    return { ...item, size, temperature, shots, price: base + shots * Number(shotPrice) };
+  };
+  const change = (index, patch) => { setReviewing(false); setItems((list) => list.map((item, i) => i === index ? pricedLine({ ...item, ...patch }) : item)); };
   const selectMenu = (index, id) => {
     const menu = menus.find((item) => String(item.id) === String(id));
     if (!menu) return;
     const sizes = menu.sizesEnabled !== false;
     const size = sizes ? (items[index].size === "S" ? "S" : "L") : "NONE";
-    const price = sizes ? Number(size === "S" ? (menu.smallPrice ?? menu.price) : (menu.largePrice ?? menu.price)) : Number(menu.price);
-    change(index, { id: menu.id, name: menu.name, emoji: menu.emoji, size, price, temperature: menu.temperatureMode === "none" ? "NONE" : items[index].temperature, shots: 0 });
+    change(index, { id: menu.id, name: menu.name, emoji: menu.emoji, size, temperature: menu.temperatureMode === "none" ? "NONE" : (items[index].temperature === "ICE" ? "ICE" : "HOT"), shots: 0 });
   };
+  const addLine = () => {
+    const menu = menus[0];
+    if (!menu) return;
+    const line = pricedLine({ id: menu.id, name: menu.name, emoji: menu.emoji, size: menu.sizesEnabled === false ? "NONE" : "L", temperature: menu.temperatureMode === "none" ? "NONE" : menu.temperatureMode === "ice" ? "ICE" : "HOT", shots: 0, qty: 1 });
+    setReviewing(false); setItems((list) => [...list, line]);
+  };
+  const total = items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0);
   const save = async () => {
     setBusy(true);
     try {
       const result = await api(`/api/orders/${order.id}`, { method: "PATCH", body: JSON.stringify({ action: "edit", items, requestKey: crypto.randomUUID() }) });
       onSaved({ ...order, items: result.items, total: result.total, last_change_summary: result.summary, last_change_at: new Date().toISOString() });
-    } catch (error) { alert(error.message); } finally { setBusy(false); }
+    } catch (error) { alert(`${error.message} 주문 내용을 확인한 뒤 다시 시도해 주세요.`); } finally { setBusy(false); }
   };
   return <div className="modal-backdrop" onClick={onClose}><div className="editor-modal order-edit-modal" onClick={(event) => event.stopPropagation()}>
     <div className="modal-head"><div><small>EDIT ORDER</small><h2>주문 품목 수정</h2></div><button onClick={onClose}><X /></button></div>
-    <p>판매완료 전까지 메뉴, 사이즈, 수량과 적용 금액을 수정할 수 있습니다.</p>
+    <p>대기 또는 준비 중인 주문만 수정할 수 있습니다. 최종 금액은 서버가 메뉴 가격으로 다시 확인합니다.</p>
     <div className="order-edit-lines">{items.map((item, index) => <div key={`${index}-${item.id}`}>
-      <select aria-label="메뉴" value={item.id} onChange={(event) => selectMenu(index, event.target.value)}>{menus.map((menu) => <option key={menu.id} value={menu.id}>{menu.name}</option>)}</select>
-      <select aria-label="사이즈" value={item.size || "NONE"} onChange={(event) => change(index, { size: event.target.value })}><option value="NONE">사이즈 없음</option><option value="S">S</option><option value="L">L</option></select>
-      <label>수량<input type="number" min="1" max="20" value={item.qty} onChange={(event) => change(index, { qty: Number(event.target.value) })} /></label>
-      <label>서버 적용 금액<input type="text" value={won(item.price)} readOnly aria-readonly="true" /></label>
+      <label>메뉴<select aria-label={`${index + 1}번째 메뉴`} value={item.id} onChange={(event) => selectMenu(index, event.target.value)}>{menus.map((menu) => <option key={menu.id} value={menu.id}>{menu.name}</option>)}</select></label>
+      <label>사이즈<select aria-label={`${item.name} 사이즈`} value={item.size || "NONE"} disabled={menuFor(item)?.sizesEnabled === false} onChange={(event) => change(index, { size: event.target.value })}><option value="NONE">사이즈 없음</option><option value="S">S</option><option value="L">L</option></select></label>
+      <label>온도<select aria-label={`${item.name} 온도`} value={item.temperature || "NONE"} disabled={menuFor(item)?.temperatureMode === "none"} onChange={(event) => change(index, { temperature: event.target.value })}><option value="NONE">선택 없음</option><option value="HOT">HOT</option><option value="ICE">ICE</option></select></label>
+      <label>샷<input aria-label={`${item.name} 샷 횟수`} type="number" min="0" max="100" value={item.shots || 0} onChange={(event) => change(index, { shots: Number(event.target.value) })} /></label>
+      <label>수량<input aria-label={`${item.name} 수량`} type="number" min="1" max="20" value={item.qty} onChange={(event) => change(index, { qty: Number(event.target.value) })} /></label>
+      <label>예상 품목 금액<input type="text" value={won(item.price * item.qty)} readOnly aria-readonly="true" /></label>
+      <button className="delete order-edit-delete" disabled={items.length === 1} onClick={() => { setReviewing(false); setItems((list) => list.filter((_, i) => i !== index)); }}>이 메뉴 삭제</button>
     </div>)}</div>
-    <div className="order-edit-total"><span>수정 합계</span><b>{won(items.reduce((sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0))}</b></div>
-    <button className="auth-submit" disabled={busy || !items.length} onClick={save}>{busy ? "저장 중..." : "주문 수정 저장"}</button>
+    <button className="order-edit-add" onClick={addLine}>메뉴 추가</button>
+    <div className="order-edit-total"><span>변경 후 예상 총금액</span><b>{won(total)}</b></div>
+    {reviewing && <div className="order-edit-review" role="status"><b>저장 전 확인</b><span>{items.length}개 품목 · 총 {items.reduce((sum, item) => sum + item.qty, 0)}개 · {won(total)}</span><small>저장하면 서버가 가격과 재고를 다시 계산합니다.</small></div>}
+    <div className="order-edit-actions"><button className="modal-cancel" disabled={busy} onClick={onClose}>취소</button>{reviewing ? <button className="auth-submit" disabled={busy || !items.length} onClick={save}>{busy ? "변경사항을 저장하고 있습니다" : "변경사항 저장"}</button> : <button className="auth-submit" disabled={!items.length} onClick={() => setReviewing(true)}>변경 내용 확인</button>}</div>
   </div></div>;
 }
 
@@ -3782,8 +3810,8 @@ function ProfileMenu({ user, onLogout, compact = false }) {
               <b>{user.name}</b>
               <small>
                 {user.role === "seller"
-                  ? "GENO Studio 판매자"
-                  : "GENO Studio 고객"}
+                  ? "KORSK 판매자"
+                  : "KORSK 고객"}
               </small>
             </div>
           </div>
@@ -3902,7 +3930,7 @@ function ExportModal({ links, onClose }) {
           <code>{links.customer}</code>
           <button onClick={copy}>{copied ? "복사됨" : "주소 복사"}</button>
         </div>
-        {qrUrl && <div className="store-qr"><img src={qrUrl} alt="소비자 주문 사이트 QR 코드" /><button onClick={() => { const a=document.createElement("a");a.href=qrUrl;a.download="GENO-소비자-QR.png";a.click(); }}>QR PNG 다운로드</button></div>}
+        {qrUrl && <div className="store-qr"><img src={qrUrl} alt="KORSK 소비자 주문 사이트 QR 코드" /><button onClick={() => { const a=document.createElement("a");a.href=qrUrl;a.download="KORSK-소비자-QR.png";a.click(); }}>QR PNG 다운로드</button></div>}
         <a
           className="open-store"
           href={links.customer}
@@ -3911,7 +3939,7 @@ function ExportModal({ links, onClose }) {
         >
           소비자 사이트 바로 열기 <ChevronRight />
         </a>
-        {navigator.share && <button className="auth-submit" onClick={() => navigator.share({ title: "GENO 소비자 주문 사이트", url: links.customer }).catch(() => {})}>모바일 공유</button>}
+        {navigator.share && <button className="auth-submit" onClick={() => navigator.share({ title: "KORSK 소비자 주문 사이트", url: links.customer }).catch(() => {})}>모바일 공유</button>}
         <button className="auth-submit" onClick={onClose}>
           완료
         </button>

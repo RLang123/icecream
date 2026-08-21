@@ -6,11 +6,11 @@ export const PUBLIC_CONTENT_PATHS = new Set(["/about", "/guide", "/privacy", "/t
 
 const pageContent = {
   "/about": {
-    eyebrow: "ABOUT GENO",
+    eyebrow: "ABOUT KORSK",
     title: "작은 매장의 주문 운영을 더 단순하게",
-    intro: "GENO Studio는 메뉴를 꾸미는 화면과 고객 주문, 품절 관리, 판매 기록을 한 흐름으로 연결하는 웹 도구입니다. 작은 매장이 별도 앱이나 결제 장비 없이 주문 흐름을 먼저 정리할 수 있도록 만들었습니다.",
+    intro: "KORSK는 메뉴를 꾸미는 화면과 고객 주문, 품절 관리, 판매 기록을 한 흐름으로 연결하는 웹 도구입니다. 작은 매장이 별도 앱이나 결제 장비 없이 주문 흐름을 먼저 정리할 수 있도록 만들었습니다.",
     sections: [
-      ["왜 만들었나요?", "소규모 카페와 행사 매장은 종이 메뉴, 메신저 주문, 수기 품절 표시가 따로 움직여 실수가 생기기 쉽습니다. GENO Studio는 메뉴 제작부터 고객 주문과 판매 상태 변경까지 같은 데이터를 사용해 반복 입력을 줄이는 데 초점을 맞춥니다."],
+      ["왜 만들었나요?", "소규모 카페와 행사 매장은 종이 메뉴, 메신저 주문, 수기 품절 표시가 따로 움직여 실수가 생기기 쉽습니다. KORSK는 메뉴 제작부터 고객 주문과 판매 상태 변경까지 같은 데이터를 사용해 반복 입력을 줄이는 데 초점을 맞춥니다."],
       ["판매자가 할 수 있는 일", "매장 이름과 색상, 카테고리, 메뉴 사진과 가격을 설정할 수 있습니다. 메뉴마다 HOT·ICE, 크기별 가격, 샷 허용 여부를 정하고 고객에게 공유할 공개 주문 주소를 만들 수 있습니다."],
       ["재료 품절이 연결되는 방식", "메뉴에 우유나 원두 같은 재료를 연결하면 재료 하나가 소진돼도 관련 메뉴가 자동으로 주문 불가가 됩니다. 수동 품절은 별도로 유지되며, 재료를 복구하면 수동 품절이 아닌 메뉴만 다시 판매됩니다."],
       ["주문 가격을 지키는 방식", "고객 화면의 장바구니 가격을 그대로 믿지 않습니다. 주문 버튼을 누르는 순간 서버가 최신 메뉴 가격, 옵션, 수량과 품절 상태를 다시 계산하므로 오래 열린 화면이나 변조된 요청으로 잘못된 금액이 저장되는 것을 막습니다."],
@@ -42,7 +42,7 @@ const pageContent = {
       ["보관과 삭제", "계정과 프로젝트는 서비스 제공에 필요한 동안 보관합니다. 주문 기록은 판매자가 운영 기록을 확인하고 내보낼 수 있도록 보관하며, 법령상 보존 의무나 분쟁 대응 필요가 없어진 뒤 삭제 요청을 처리합니다. 만료된 로그인 세션은 인증 및 로그아웃 과정에서 정리됩니다."],
       ["외부 처리", "제휴 문의를 보내는 경우 입력한 회사·이름·이메일·문의 내용이 Formspree로 전달됩니다. AdSense를 활성화하면 Google 광고 관련 쿠키와 데이터 처리가 추가될 수 있으므로 동의 및 고지 정책을 별도로 확정해야 합니다."],
       ["이용자의 요청", "본인 정보의 열람·정정·삭제나 처리 관련 문의는 로그인 페이지의 제휴 문의 양식을 통해 접수할 수 있습니다. 계정 확인에 필요한 최소 정보만 요청하며 비밀번호나 세션 값을 문의 내용에 적어서는 안 됩니다."],
-      ["운영자와 문의처", "서비스 운영 주체는 GENO Studio 운영팀입니다. 개인정보 관련 문의는 로그인 페이지 하단의 제휴 문의 양식에서 ‘기능·개선 제안’ 또는 ‘기타’를 선택해 접수할 수 있습니다."],
+      ["운영자와 문의처", "서비스 운영 주체는 KORSK 운영팀입니다. 개인정보 관련 문의는 로그인 페이지 하단의 제휴 문의 양식에서 ‘기능·개선 제안’ 또는 ‘기타’를 선택해 접수할 수 있습니다."],
       ["시행일", "이 방침은 2026년 8월 4일부터 적용합니다. 처리 기능이나 외부 서비스가 달라지면 변경 내용을 이 페이지에 반영합니다."],
     ],
   },
@@ -51,7 +51,7 @@ const pageContent = {
     title: "서비스 이용 안내",
     intro: "현재 제공 기능의 범위와 이용 시 주의사항을 이해하기 쉽게 정리했습니다.",
     sections: [
-      ["서비스 범위", "GENO Studio는 메뉴 제작, 공개 주문 접수와 판매 상태 관리를 돕습니다. 실제 카드 결제, 배송, 세금계산서 발행 기능은 제공하지 않습니다."],
+      ["서비스 범위", "KORSK는 메뉴 제작, 공개 주문 접수와 판매 상태 관리를 돕습니다. 실제 카드 결제, 배송, 세금계산서 발행 기능은 제공하지 않습니다."],
       ["판매자의 책임", "판매자는 메뉴 가격·알레르기·재료·품절 정보와 주문 처리 결과를 실제 매장 상황에 맞게 확인하고 고객에게 안내해야 합니다."],
       ["계정과 데이터", "계정 정보를 다른 사람과 공유하지 말고 프로젝트 JSON과 주문 CSV를 정기적으로 백업하세요. 서비스 장애나 무료 사용량 한도로 일시적인 요청 실패가 발생할 수 있습니다."],
       ["서비스 변경과 중단", "보안, 장애 대응 또는 무료 인프라 한도 때문에 일부 기능이 일시 중단될 수 있습니다. 중요한 변경은 가능한 범위에서 서비스 화면이나 공개 안내에 반영하며, 판매자는 중요한 프로젝트와 주문 기록을 정기적으로 내보내 보관해야 합니다."],
@@ -67,8 +67,8 @@ export function PublicContentPage({ pathname = location.pathname }) {
   return (
     <div className="public-content-page">
       <header className="content-nav">
-        <a className="content-brand" href="/login" aria-label="GENO Studio 홈">
-          <span><Sparkles size={17} /></span><b>GENO Studio</b>
+        <a className="content-brand" href="/login" aria-label="KORSK 홈">
+          <span><Sparkles size={17} /></span><b>KORSK</b>
         </a>
         <nav aria-label="공개 정보 페이지">
           <a href="/about">서비스 소개</a><a href="/guide">이용 안내</a><a href="/privacy">개인정보</a><a href="/terms">이용 정책</a><a href="/login#partnership">문의</a>
@@ -81,10 +81,10 @@ export function PublicContentPage({ pathname = location.pathname }) {
         <div className="content-sections">
           {page.sections.map(([title, copy]) => <section key={title}><h2>{title}</h2><p>{copy}</p></section>)}
         </div>
-        <a className="content-start" href="/login">GENO 시작 화면으로 <ChevronRight /></a>
+        <a className="content-start" href="/login">KORSK 시작 화면으로 <ChevronRight /></a>
       </main>
       <footer className="content-footer">
-        <span>© GENO Studio</span><nav aria-label="법적 고지"><a href="/privacy">개인정보 처리방침</a><a href="/terms">이용 안내</a><a href="/login#partnership">문의하기</a></nav>
+        <span>© KORSK</span><nav aria-label="법적 고지"><a href="/privacy">개인정보 처리방침</a><a href="/terms">이용 안내</a><a href="/login#partnership">문의하기</a></nav>
       </footer>
     </div>
   );
